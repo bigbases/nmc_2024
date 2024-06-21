@@ -1,8 +1,8 @@
 import torch
 import math
 from torch import nn
-from semseg.models.backbones import *
-from semseg.models.layers import trunc_normal_
+from nmc.models.backbones import *
+from nmc.models.layers import trunc_normal_
 
 '''
 model parameter initialization
