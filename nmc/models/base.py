@@ -10,8 +10,11 @@ model parameter initialization
 class BaseModel(nn.Module):
     def __init__(self, backbone: str = 'MiT-B0', num_classes: int = 19) -> None:
         super().__init__()
-        backbone, variant = backbone.split('-')
-        self.backbone = eval(backbone)(variant)
+        if '-' in backbone:
+            backbone, variant = backbone.split('-')
+            self.backbone = eval(backbone)(variant)
+        else:
+            self.backbone = eval(backbone)()
 
     def _init_weights(self, m: nn.Module) -> None:
         if isinstance(m, nn.Linear):
@@ -31,3 +34,7 @@ class BaseModel(nn.Module):
     def init_pretrained(self, pretrained: str = None) -> None:
         if pretrained:
             self.backbone.load_state_dict(torch.load(pretrained, map_location='cpu'), strict=False)
+            
+    def init_pretrained_fgmaxxvit(self, pretrained: str = None) -> None:
+        self.backbone.load_state_dict(torch.load(pretrained, map_location='cpu'), strict=False)
+        
