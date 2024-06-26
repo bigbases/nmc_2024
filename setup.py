@@ -8,7 +8,7 @@ setup(
     author='Gangmin park, Wonryeol jeong, Jihoon moon',
     author_email='gangmin.park@seoultech.ac.kr',
     license='bigbase',
-    packages=find_packages(include=['semseg']),
+    packages=find_packages(include=['nmc']),
     install_requires=[
         'tqdm',
         'tabulate',
