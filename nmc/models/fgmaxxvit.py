@@ -17,7 +17,7 @@ class FGMaxxVit(BaseModel):
 if __name__ == '__main__':
     import torch
     model = FGMaxxVit('FGMaxxVit', 1000)
-    #model.init_pretrained('checkpoints/backbones/resnet/resnet18.pth')
+    model.init_pretrained_fgmaxxvit('checkpoints/pretrained/maxvit_base_tf_512.in1k_pretrained_weights.pth')
     x = torch.randn(2, 3, 512, 512)
     y = model(x)
     print(y.shape)

@@ -36,6 +36,5 @@ class BaseModel(nn.Module):
             self.backbone.load_state_dict(torch.load(pretrained, map_location='cpu'), strict=False)
             
     def init_pretrained_fgmaxxvit(self, pretrained: str = None) -> None:
-        weights_path = 'checkpoints/pretrained/maxvit_base_tf_512.in1k_pretrained_weights.pth'
-        self.backbone.load_state_dict(torch.load(weights_path, map_location='cpu'), strict=False)
+        self.backbone.load_state_dict(torch.load(pretrained, map_location='cpu'), strict=False)
         
