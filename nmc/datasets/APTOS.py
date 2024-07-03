@@ -70,7 +70,8 @@ class EpisodicAPTOSDataset(Dataset):
         #image = Image.open(img_path).convert('RGB')
         image = io.read_image(img_path)
         
-        label = self.dataframe.iloc[idx]['diagnosis']
+        one_hot = np.zeros(5)
+        one_hot[self.dataframe.iloc[idx]['diagnosis']] = 1
 
         if self.transform:
             image = self.transform(image)
