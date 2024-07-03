@@ -5,13 +5,32 @@ import pandas as pd
 import os 
 import numpy as np 
 class APTOSDataset(Dataset):
-    def __init__(self, dataframe, image_dir, transform=None):
-        self.dataframe = dataframe
+    def __init__(self, image_dir, transform=None):
+        print(image_dir)
+        # /data/public_data/cropped_image/train_images
+        data = image_dir.split('/')[-1]
+        if 'train_images' == data: 
+            # /data_2/national_AI_DD/public_data/cropped_image/cropped_train.csv
+            df_path = image_dir.replace('train_images','cropped_train.csv')
+            self.dataframe = pd.read_csv(df_path)
+            pass
+        elif 'test_images' == data:
+            df_path = image_dir.replace('test_images','cropped_test.csv')
+            self.dataframe = pd.read_csv(df_path)
+            pass
+        
+        elif 'val_images' == data:
+            df_path = image_dir.replace('val_images','cropped_valid.csv')
+            self.dataframe = pd.read_csv(df_path)
+            pass
+        else:
+            print('wrong')
+            
         self.image_dir = image_dir
         self.transform = transform
 
     def __len__(self):
-        return len(self.dataframe)
+        return len(os.listdir(self.image_dir))
 
     def __getitem__(self, idx):
         img_name = self.dataframe.iloc[idx]['id_code']
