@@ -5,9 +5,27 @@ import pandas as pd
 import os 
 import numpy as np 
 class ODIRDataset(Dataset):
-    
-    def __init__(self,  image_dir, transform=None):
-        self.dataframe = pd.read_csv('/data_2/national_AI_DD/ODIR-5K/ODIR-5K/new_ODIR_label.csv')
+    def __init__(self, image_dir, transform=None):
+        print(image_dir)
+        # /data/public_data/cropped_image/train_images
+        data = image_dir.split('/')[-1]
+        if 'train_images' == data: 
+            # /data_2/national_AI_DD/public_data/cropped_image/cropped_train.csv
+            df_path = image_dir.replace('train_images','new_ODIR_train.csv')
+            self.dataframe = pd.read_csv(df_path)
+            pass
+        elif 'test_images' == data:
+            df_path = image_dir.replace('test_images','new_ODIR_test.csv')
+            self.dataframe = pd.read_csv(df_path)
+            pass
+        
+        elif 'val_images' == data:
+            df_path = image_dir.replace('val_images','new_ODIR_valid.csv')
+            self.dataframe = pd.read_csv(df_path)
+            pass
+        else:
+            print('wrong')
+        # print(self.dataframe)
         self.image_dir = image_dir
         self.transform = transform
 
