@@ -7,7 +7,7 @@ class CrossEntropy(nn.Module):
     def __init__(self, ignore_label: int = 255, weight: Tensor = None, aux_weights: list = [1, 0.4, 0.4]) -> None:
         super().__init__()
         self.aux_weights = aux_weights
-        self.criterion = nn.CrossEntropyLoss(weight=weight, ignore_index=ignore_label)
+        self.criterion = nn.CrossEntropyLoss(weight=weight)
 
     def _forward(self, preds: Tensor, labels: Tensor) -> Tensor:
         # preds in shape [B, C, H, W] and labels in shape [B, H, W]
