@@ -1,5 +1,6 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
+from torchvision import io
 from PIL import Image
 import pandas as pd 
 import os 
@@ -8,6 +9,7 @@ class APTOSDataset(Dataset):
     def __init__(self, image_dir, transform=None):
         print(image_dir)
         # /data/public_data/cropped_image/train_images
+        self.CLASSES = ['Norma','Mild','Moderate Disease Level','Server','Proliferative']
         data = image_dir.split('/')[-1]
         if 'train_images' == data: 
             # /data_2/national_AI_DD/public_data/cropped_image/cropped_train.csv
@@ -28,6 +30,7 @@ class APTOSDataset(Dataset):
             
         self.image_dir = image_dir
         self.transform = transform
+        self.n_classes = len(self.CLASSES)
 
     def __len__(self):
         return len(os.listdir(self.image_dir))
@@ -36,14 +39,16 @@ class APTOSDataset(Dataset):
         img_name = self.dataframe.iloc[idx]['id_code']
         img_name +='.png'
         img_path = os.path.join(self.image_dir, img_name)
-        image = Image.open(img_path).convert('RGB')
-
-        label_vector = np.array(self.dataframe.iloc[idx]['diagnosis'], dtype=np.float32)
+        #image = Image.open(img_path).convert('RGB')
+        image = io.read_image(img_path)
+        one_hot = np.zeros(5)
+        one_hot[self.dataframe.iloc[idx]['diagnosis']] = 1
+        # label_vector = np.array(self.dataframe.iloc[idx]['diagnosis'], dtype=np.float32)
 
         if self.transform:
             image = self.transform(image)
 
-        return image, torch.tensor(label_vector)
+        return image, torch.tensor(one_hot)
     
 
 class EpisodicAPTOSDataset(Dataset):
@@ -62,8 +67,9 @@ class EpisodicAPTOSDataset(Dataset):
     def __getitem__(self, idx):
         img_name = self.dataframe.iloc[idx]['id_code'] + '.png'
         img_path = os.path.join(self.image_dir, img_name)
-        image = Image.open(img_path).convert('RGB')
-
+        #image = Image.open(img_path).convert('RGB')
+        image = io.read_image(img_path)
+        
         label = self.dataframe.iloc[idx]['diagnosis']
 
         if self.transform:
