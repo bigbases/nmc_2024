@@ -17,3 +17,20 @@ $ cd nmc_2024
 $ pip install -e .
 ```
 </details>
+
+<details open>
+  <summary><strong>Configuration</strong></summary>
+
+Create a configuration file in configs.
+
+</details>
+
+<details open>
+  <summary><strong>Training</strong></summary>
+
+To train with a single GPU:
+
+```bash
+$ python tools/train.py --cfg configs/CONFIG_FILE.yaml
+```
+</details>
