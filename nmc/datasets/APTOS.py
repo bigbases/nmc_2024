@@ -41,13 +41,14 @@ class APTOSDataset(Dataset):
         img_path = os.path.join(self.image_dir, img_name)
         #image = Image.open(img_path).convert('RGB')
         image = io.read_image(img_path)
-
-        label_vector = np.array(self.dataframe.iloc[idx]['diagnosis'], dtype=np.float32)
+        one_hot = np.zeros(5)
+        one_hot[self.dataframe.iloc[idx]['diagnosis']] = 1
+        # label_vector = np.array(self.dataframe.iloc[idx]['diagnosis'], dtype=np.float32)
 
         if self.transform:
             image = self.transform(image)
 
-        return image, torch.tensor(label_vector)
+        return image, torch.tensor(one_hot)
     
 
 class EpisodicAPTOSDataset(Dataset):
@@ -69,7 +70,8 @@ class EpisodicAPTOSDataset(Dataset):
         #image = Image.open(img_path).convert('RGB')
         image = io.read_image(img_path)
         
-        label = self.dataframe.iloc[idx]['diagnosis']
+        one_hot = np.zeros(5)
+        one_hot[self.dataframe.iloc[idx]['diagnosis']] = 1
 
         if self.transform:
             image = self.transform(image)

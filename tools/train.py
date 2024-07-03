@@ -118,7 +118,8 @@ if __name__ == '__main__':
 
     with open(args.cfg) as f:
         cfg = yaml.load(f, Loader=yaml.SafeLoader)
-
+    print(cfg)
+    exit()
     fix_seeds(3407)
     setup_cudnn()
     gpu = setup_ddp()
