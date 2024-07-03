@@ -5,8 +5,9 @@ import pandas as pd
 import os 
 import numpy as np 
 class ODIRDataset(Dataset):
-    def __init__(self, dataframe, image_dir, transform=None):
-        self.dataframe = dataframe
+    
+    def __init__(self,  image_dir, transform=None):
+        self.dataframe = pd.read_csv('/data_2/national_AI_DD/ODIR-5K/ODIR-5K/new_ODIR_label.csv')
         self.image_dir = image_dir
         self.transform = transform
 
