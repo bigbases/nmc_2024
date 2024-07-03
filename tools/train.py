@@ -7,24 +7,24 @@ from tabulate import tabulate
 from tqdm import tqdm
 from torch.utils.data import DataLoader
 from pathlib import Path
-from torch.utils.tensorboard import SummaryWriter
+#from torch.utils.tensorboard import SummaryWriter
 from torch.cuda.amp import GradScaler, autocast
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DistributedSampler, RandomSampler
 from torch import distributed as dist
-from semseg.models import *
-from semseg.datasets import * 
-from semseg.augmentations import get_train_augmentation, get_val_augmentation
-from semseg.losses import get_loss
-from semseg.schedulers import get_scheduler
-from semseg.optimizers import get_optimizer
-from semseg.utils.utils import fix_seeds, setup_cudnn, cleanup_ddp, setup_ddp
+from nmc.models import *
+from nmc.datasets import * 
+from nmc.augmentations import get_train_augmentation, get_val_augmentation
+from nmc.losses import get_loss
+from nmc.schedulers import get_scheduler
+from nmc.optimizers import get_optimizer
+from nmc.utils.utils import fix_seeds, setup_cudnn, cleanup_ddp, setup_ddp
 from val import evaluate
 
 
 def main(cfg, gpu, save_dir):
     start = time.time()
-    best_mIoU = 0.0
+    best_mf1 = 0.0
     num_workers = mp.cpu_count()
     device = torch.device(cfg['DEVICE'])
     train_cfg, eval_cfg = cfg['TRAIN'], cfg['EVAL']
@@ -32,11 +32,11 @@ def main(cfg, gpu, save_dir):
     loss_cfg, optim_cfg, sched_cfg = cfg['LOSS'], cfg['OPTIMIZER'], cfg['SCHEDULER']
     epochs, lr = train_cfg['EPOCHS'], optim_cfg['LR']
     
-    traintransform = get_train_augmentation(train_cfg['IMAGE_SIZE'], seg_fill=dataset_cfg['IGNORE_LABEL'])
+    traintransform = get_train_augmentation(train_cfg['IMAGE_SIZE'])
     valtransform = get_val_augmentation(eval_cfg['IMAGE_SIZE'])
 
-    trainset = eval(dataset_cfg['NAME'])(dataset_cfg['ROOT'], 'train', traintransform)
-    valset = eval(dataset_cfg['NAME'])(dataset_cfg['ROOT'], 'val', valtransform)
+    trainset = eval(dataset_cfg['NAME'])(dataset_cfg['ROOT']+'/train_images', traintransform)
+    valset = eval(dataset_cfg['NAME'])(dataset_cfg['ROOT']+'/train_images', valtransform)
     
     model = eval(model_cfg['NAME'])(model_cfg['BACKBONE'], trainset.n_classes)
     model.init_pretrained(model_cfg['PRETRAINED'])
@@ -53,11 +53,11 @@ def main(cfg, gpu, save_dir):
 
     iters_per_epoch = len(trainset) // train_cfg['BATCH_SIZE']
     # class_weights = trainset.class_weights.to(device)
-    loss_fn = get_loss(loss_cfg['NAME'], trainset.ignore_label, None)
+    loss_fn = get_loss(loss_cfg['NAME'],None,  None)
     optimizer = get_optimizer(model, optim_cfg['NAME'], lr, optim_cfg['WEIGHT_DECAY'])
     scheduler = get_scheduler(sched_cfg['NAME'], optimizer, epochs * iters_per_epoch, sched_cfg['POWER'], iters_per_epoch * sched_cfg['WARMUP'], sched_cfg['WARMUP_RATIO'])
     scaler = GradScaler(enabled=train_cfg['AMP'])
-    writer = SummaryWriter(str(save_dir / 'logs'))
+    #writer = SummaryWriter(str(save_dir / 'logs'))
 
     for epoch in range(epochs):
         model.train()
@@ -68,7 +68,6 @@ def main(cfg, gpu, save_dir):
 
         for iter, (img, lbl) in pbar:
             optimizer.zero_grad(set_to_none=True)
-
             img = img.to(device)
             lbl = lbl.to(device)
             
@@ -89,24 +88,24 @@ def main(cfg, gpu, save_dir):
             pbar.set_description(f"Epoch: [{epoch+1}/{epochs}] Iter: [{iter+1}/{iters_per_epoch}] LR: {lr:.8f} Loss: {train_loss / (iter+1):.8f}")
         
         train_loss /= iter+1
-        writer.add_scalar('train/loss', train_loss, epoch)
+        #writer.add_scalar('train/loss', train_loss, epoch)
         torch.cuda.empty_cache()
 
         if (epoch+1) % train_cfg['EVAL_INTERVAL'] == 0 or (epoch+1) == epochs:
-            miou = evaluate(model, valloader, device)[-1]
-            writer.add_scalar('val/mIoU', miou, epoch)
+            mf1 = evaluate(model, valloader, device)[-1]
+            #writer.add_scalar('val/mf1', mf1, epoch)
 
-            if miou > best_mIoU:
-                best_mIoU = miou
+            if mf1 > best_mf1:
+                best_mf1 = mf1
                 torch.save(model.module.state_dict() if train_cfg['DDP'] else model.state_dict(), save_dir / f"{model_cfg['NAME']}_{model_cfg['BACKBONE']}_{dataset_cfg['NAME']}.pth")
-            print(f"Current mIoU: {miou} Best mIoU: {best_mIoU}")
+            print(f"Current mf1: {mf1} Best mf1: {best_mf1}")
 
-    writer.close()
+    #writer.close()
     pbar.close()
     end = time.gmtime(time.time() - start)
 
     table = [
-        ['Best mIoU', f"{best_mIoU:.2f}"],
+        ['Best mf1', f"{best_mf1:.2f}"],
         ['Total Training Time', time.strftime("%H:%M:%S", end)]
     ]
     print(tabulate(table, numalign='right'))
