@@ -1,22 +1,17 @@
 import torch
 from torch import nn, Tensor
 from torch.nn import functional as F
+from typing import Union
 
 
 class CrossEntropy(nn.Module):
-    def __init__(self, ignore_label: int = 255, weight: Tensor = None, aux_weights: list = [1, 0.4, 0.4]) -> None:
+    def __init__(self, weight: Tensor = None) -> None:
         super().__init__()
-        self.aux_weights = aux_weights
         self.criterion = nn.CrossEntropyLoss(weight=weight)
 
-    def _forward(self, preds: Tensor, labels: Tensor) -> Tensor:
-        # preds in shape [B, C, H, W] and labels in shape [B, H, W]
+    def forward(self, preds: Tensor, labels: Tensor) -> Tensor:
+        # preds in shape [B, C] and labels in shape [B]
         return self.criterion(preds, labels)
-
-    def forward(self, preds, labels: Tensor) -> Tensor:
-        if isinstance(preds, tuple):
-            return sum([w * self._forward(pred, labels) for (pred, w) in zip(preds, self.aux_weights)])
-        return self._forward(preds, labels)
 
 
 class OhemCrossEntropy(nn.Module):
@@ -76,11 +71,19 @@ class Dice(nn.Module):
 __all__ = ['CrossEntropy', 'OhemCrossEntropy', 'Dice']
 
 
-def get_loss(loss_fn_name: str = 'CrossEntropy', ignore_label: int = 255, cls_weights: Tensor = None):
-    assert loss_fn_name in __all__, f"Unavailable loss function name >> {loss_fn_name}.\nAvailable loss functions: {__all__}"
-    if loss_fn_name == 'Dice':
-        return Dice()
-    return eval(loss_fn_name)(ignore_label, cls_weights)
+def get_loss(loss_fn_name: str = 'CrossEntropy', cls_weights: Union[Tensor, None] = None):
+    available_loss_functions = ['CrossEntropy', 'BCEWithLogitsLoss', 'MSELoss', 'L1Loss']
+    
+    assert loss_fn_name in available_loss_functions, f"Unavailable loss function name >> {loss_fn_name}.\nAvailable loss functions: {available_loss_functions}"
+    
+    if loss_fn_name == 'CrossEntropy':
+        return CrossEntropy(weight=cls_weights)
+    elif loss_fn_name == 'BCEWithLogitsLoss':
+        return nn.BCEWithLogitsLoss(weight=cls_weights)
+    elif loss_fn_name == 'MSELoss':
+        return nn.MSELoss()
+    elif loss_fn_name == 'L1Loss':
+        return nn.L1Loss()
 
 
 if __name__ == '__main__':
