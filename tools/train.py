@@ -61,7 +61,7 @@ def main(cfg, gpu, save_dir):
 
     iters_per_epoch = len(trainset) // train_cfg['BATCH_SIZE']
     # class_weights = trainset.class_weights.to(device)
-    loss_fn = get_loss(loss_cfg['NAME'],None,  None)
+    loss_fn = get_loss(loss_cfg['NAME'])
     optimizer = get_optimizer(model, optim_cfg['NAME'], lr, optim_cfg['WEIGHT_DECAY'])
     scheduler = get_scheduler(sched_cfg['NAME'], optimizer, epochs * iters_per_epoch, sched_cfg['POWER'], iters_per_epoch * sched_cfg['WARMUP'], sched_cfg['WARMUP_RATIO'])
     scaler = GradScaler(enabled=train_cfg['AMP'])
@@ -100,8 +100,21 @@ def main(cfg, gpu, save_dir):
         torch.cuda.empty_cache()
 
         if (epoch+1) % train_cfg['EVAL_INTERVAL'] == 0 or (epoch+1) == epochs:
-            mf1 = evaluate(model, valloader, device)[-1]
+            results = evaluate(model, valloader, device)
+            mf1 = results['avg_f1']
             #writer.add_scalar('val/mf1', mf1, epoch)
+            
+            print(f"Accuracy: {results['accuracy']:.2f}%")
+            print(f"Average Precision: {results['avg_precision']:.2f}%")
+            print(f"Average Recall: {results['avg_recall']:.2f}%")
+            print(f"Average F1: {results['avg_f1']:.2f}%")
+
+            print("\nPer-class metrics:")
+            for class_idx, metrics in results['class_metrics']['precision'].items():
+                print(f"Class {class_idx}:")
+                print(f"  Precision: {results['class_metrics']['precision'][class_idx]:.2f}%")
+                print(f"  Recall: {results['class_metrics']['recall'][class_idx]:.2f}%")
+                print(f"  F1: {results['class_metrics']['f1'][class_idx]:.2f}%")
 
             if mf1 > best_mf1:
                 best_mf1 = mf1

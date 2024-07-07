@@ -12,24 +12,24 @@ from nmc.datasets import *
 from nmc.augmentations import get_val_augmentation
 from nmc.metrics import Metrics
 from nmc.utils.utils import setup_cudnn
+from typing import Tuple, Dict
 
 
 @torch.no_grad()
-def evaluate(model, dataloader, device):
+def evaluate(model: torch.nn.Module, dataloader: torch.utils.data.DataLoader, device: str) -> Dict[str, float]:
     print('Evaluating...')
     model.eval()
-    metrics = Metrics(dataloader.dataset.n_classes, dataloader.dataset.ignore_label, device)
+    metrics = Metrics(num_classes=dataloader.dataset.n_classes, device=device)
 
     for images, labels in tqdm(dataloader):
         images = images.to(device)
         labels = labels.to(device)
-        preds = model(images).softmax(dim=1)
-        metrics.update(preds, labels)
+        outputs = model(images)
+        metrics.update(outputs, labels)
     
-    #ious, miou = metrics.compute_iou()
-    acc, macc = metrics.compute_pixel_acc()
-    f1, mf1 = metrics.compute_f1()
+    results = metrics.compute_metrics()
     
+<<<<<<< HEAD
     return acc, macc, f1, mf1#, ious, miou
 
 @torch.no_grad()
@@ -87,6 +87,9 @@ def evaluate_msf(model, dataloader, device, scales, flip):
     f1, mf1 = metrics.compute_f1()
     #ious, miou = metrics.compute_iou()
     return acc, macc, f1, mf1#, ious, miou
+=======
+    return results
+>>>>>>> 63a9dcf9ea8282e31f104a66d5facd6eaebb8020
 
 
 def main(cfg):
@@ -105,10 +108,7 @@ def main(cfg):
     model.load_state_dict(torch.load(str(model_path), map_location='cpu'))
     model = model.to(device)
 
-    if eval_cfg['MSF']['ENABLE']:
-        acc, macc, f1, mf1 = evaluate_msf(model, dataloader, device, eval_cfg['MSF']['SCALES'], eval_cfg['MSF']['FLIP'])
-    else:
-        acc, macc, f1, mf1 = evaluate(model, dataloader, device)
+    acc, macc, f1, mf1 = evaluate(model, dataloader, device)
 
     table = {
         'Class': list(dataset.CLASSES) + ['Mean'],

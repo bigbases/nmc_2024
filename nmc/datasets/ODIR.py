@@ -1,5 +1,6 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
+from torchvision import io
 from PIL import Image
 import pandas as pd 
 import os 
@@ -8,6 +9,7 @@ class ODIRDataset(Dataset):
     def __init__(self, image_dir, transform=None):
         print(image_dir)
         # /data/public_data/cropped_image/train_images
+        self.CLASSES = ['N','D','G','C','A','H','M','O']
         data = image_dir.split('/')[-1]
         if 'train_images' == data: 
             # /data_2/national_AI_DD/public_data/cropped_image/cropped_train.csv
@@ -28,6 +30,7 @@ class ODIRDataset(Dataset):
         # print(self.dataframe)
         self.image_dir = image_dir
         self.transform = transform
+        self.n_classes = len(self.CLASSES)
 
     def __len__(self):
         return len(self.dataframe)
@@ -35,7 +38,7 @@ class ODIRDataset(Dataset):
     def __getitem__(self, idx):
         img_name = self.dataframe.iloc[idx]['Fundus']
         img_path = os.path.join(self.image_dir, img_name)
-        image = Image.open(img_path).convert('RGB')
+        image = io.read_image(img_path)
         label_vector = self.dataframe.loc[idx][6:-1].values
         label_vector = label_vector.astype(float)
 
