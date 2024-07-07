@@ -10,9 +10,18 @@ class Metrics:
         self.hist = torch.zeros(num_classes, num_classes).to(device)
 
     def update(self, pred: Tensor, target: Tensor) -> None:
-        pred = pred.argmax(dim=1)
         keep = target != self.ignore_label
         self.hist += torch.bincount(target[keep] * self.num_classes + pred[keep], minlength=self.num_classes**2).view(self.num_classes, self.num_classes)
+        
+    def update_epi(self, pred: torch.Tensor, target: torch.Tensor) -> None:
+        keep = target != self.ignore_label
+
+        target_flat = target[keep].flatten().to(torch.int64)
+        pred_flat = pred[keep].flatten().to(torch.int64)
+
+        bincount_input = target_flat * self.num_classes + pred_flat
+        hist_update = torch.bincount(bincount_input, minlength=self.num_classes**2)
+        self.hist += hist_update.view(self.num_classes, self.num_classes)
 
     def compute_iou(self) -> Tuple[Tensor, Tensor]:
         ious = self.hist.diag() / (self.hist.sum(0) + self.hist.sum(1) - self.hist.diag())
