@@ -10,6 +10,7 @@ class APTOSDataset(Dataset):
         # /data/public_data/cropped_image/train_images
         self.CLASSES = ['Norma','Mild','Moderate Disease Level','Server','Proliferative']
         data = image_dir.split('/')[-1]
+        # print(data)
         if 'train_images' == data: 
             # /data_2/national_AI_DD/public_data/cropped_image/cropped_train.csv
             df_path = image_dir.replace('train_images','cropped_train.csv')
