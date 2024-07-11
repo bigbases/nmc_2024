@@ -29,7 +29,6 @@ def evaluate(model: torch.nn.Module, dataloader: torch.utils.data.DataLoader, de
     
     results = metrics.compute_metrics()
     
-<<<<<<< HEAD
     return acc, macc, f1, mf1#, ious, miou
 
 @torch.no_grad()
@@ -87,9 +86,6 @@ def evaluate_msf(model, dataloader, device, scales, flip):
     f1, mf1 = metrics.compute_f1()
     #ious, miou = metrics.compute_iou()
     return acc, macc, f1, mf1#, ious, miou
-=======
-    return results
->>>>>>> 63a9dcf9ea8282e31f104a66d5facd6eaebb8020
 
 
 def main(cfg):
