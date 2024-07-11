@@ -1,0 +1,13 @@
+Metadata-Version: 2.1
+Name: nmc
+Version: 0.0.1
+Summary: nactional medical center diabetic retinopathy project 
+Home-page: https://github.com/bigbases/nmc_2024
+Author: Gangmin park, Wonryeol jeong, Jihoon moon
+Author-email: gangmin.park@seoultech.ac.kr
+License: bigbase
+Requires-Dist: tqdm
+Requires-Dist: tabulate
+Requires-Dist: numpy
+Requires-Dist: scipy
+Requires-Dist: matplotlib

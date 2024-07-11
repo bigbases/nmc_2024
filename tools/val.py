@@ -29,13 +29,13 @@ def evaluate(model: torch.nn.Module, dataloader: torch.utils.data.DataLoader, de
     
     results = metrics.compute_metrics()
     
-    return acc, macc, f1, mf1#, ious, miou
+    return results
 
 @torch.no_grad()
 def evaluate_epi(model, dataset, device, num_episodes=10):
     print('Evaluating...')
     model.eval()
-    metrics = Metrics(dataset.n_classes, ignore_label=None, device=device)
+    metrics = Metrics(dataset.n_classes, device=device)
 
     for _ in tqdm(range(num_episodes)):
         support_x, support_y, query_x, query_y = dataset.create_episode()
@@ -46,47 +46,9 @@ def evaluate_epi(model, dataset, device, num_episodes=10):
         preds = model(query_x).softmax(dim=1).argmax(dim=1).to(torch.int64).flatten()
         metrics.update_epi(preds, query_y)
 
-    acc, macc = metrics.compute_pixel_acc()
-    f1, mf1 = metrics.compute_f1()
+    results = metrics.compute_metrics()
     
-    return acc, macc, f1, mf1
-
-
-@torch.no_grad()
-def evaluate_msf(model, dataloader, device, scales, flip):
-    model.eval()
-
-    n_classes = dataloader.dataset.n_classes
-    metrics = Metrics(n_classes, dataloader.dataset.ignore_label, device)
-
-    for images, labels in tqdm(dataloader):
-        labels = labels.to(device)
-        B, H, W = labels.shape
-        scaled_logits = torch.zeros(B, n_classes, H, W).to(device)
-
-        for scale in scales:
-            new_H, new_W = int(scale * H), int(scale * W)
-            new_H, new_W = int(math.ceil(new_H / 32)) * 32, int(math.ceil(new_W / 32)) * 32
-            scaled_images = F.interpolate(images, size=(new_H, new_W), mode='bilinear', align_corners=True)
-            scaled_images = scaled_images.to(device)
-            logits = model(scaled_images)
-            logits = F.interpolate(logits, size=(H, W), mode='bilinear', align_corners=True)
-            scaled_logits += logits.softmax(dim=1)
-
-            if flip:
-                scaled_images = torch.flip(scaled_images, dims=(3,))
-                logits = model(scaled_images)
-                logits = torch.flip(logits, dims=(3,))
-                logits = F.interpolate(logits, size=(H, W), mode='bilinear', align_corners=True)
-                scaled_logits += logits.softmax(dim=1)
-
-        metrics.update(scaled_logits, labels)
-    
-    acc, macc = metrics.compute_pixel_acc()
-    f1, mf1 = metrics.compute_f1()
-    #ious, miou = metrics.compute_iou()
-    return acc, macc, f1, mf1#, ious, miou
-
+    return results
 
 def main(cfg):
     device = torch.device(cfg['DEVICE'])

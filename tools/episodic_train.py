@@ -49,7 +49,7 @@ def main(cfg, gpu, save_dir):
         sampler = None
 
     optimizer = get_optimizer(model, cfg['OPTIMIZER']['NAME'], cfg['OPTIMIZER']['LR'], cfg['OPTIMIZER']['WEIGHT_DECAY'])
-    criterion = get_loss(cfg['LOSS']['NAME'], None, None)
+    criterion = get_loss(cfg['LOSS']['NAME'])
     
     scheduler = get_scheduler(sched_cfg['NAME'], optimizer, num_episodes, sched_cfg['POWER'], num_episodes * sched_cfg['WARMUP'], sched_cfg['WARMUP_RATIO'])
     scaler = GradScaler(enabled=train_cfg['AMP'])
@@ -91,12 +91,30 @@ def main(cfg, gpu, save_dir):
         pbar.update(1)
 
         if (episode_idx + 1) % train_cfg['EVAL_INTERVAL'] == 0 or (episode_idx + 1) == num_episodes:
-            acc, macc, f1, mf1 = evaluate_epi(model, episodic_dataset, device, num_episodes=10)
+            results = evaluate_epi(model, episodic_dataset, device, num_episodes=10)
+            mf1 = results['avg_f1']
+            #writer.add_scalar('val/mf1', mf1, epoch)
+            
+            print(f"Accuracy: {results['accuracy']:.2f}%")
+            print(f"Average Precision: {results['avg_precision']:.2f}%")
+            print(f"Average Recall: {results['avg_recall']:.2f}%")
+            print(f"Average F1: {results['avg_f1']:.2f}%")
+
+            print("\nPer-class metrics:")
+            for class_idx, metrics in results['class_metrics']['precision'].items():
+                print(f"Class {class_idx}:")
+                print(f"  Precision: {results['class_metrics']['precision'][class_idx]:.2f}%")
+                print(f"  Recall: {results['class_metrics']['recall'][class_idx]:.2f}%")
+                print(f"  F1: {results['class_metrics']['f1'][class_idx]:.2f}%")
 
             if mf1 > best_mf1:
                 best_mf1 = mf1
-                torch.save(model.module.state_dict() if train_cfg['DDP'] else model.state_dict(), save_dir / f"{cfg['MODEL']['NAME']}_{cfg['MODEL']['BACKBONE']}_{cfg['DATASET']['NAME']}.pth")
+                torch.save(model.module.state_dict() if train_cfg['DDP'] else model.state_dict(), save_dir / f"{model_cfg['NAME']}_{model_cfg['BACKBONE']}_{dataset_cfg['NAME']}.pth")
             print(f"Current mf1: {mf1} Best mf1: {best_mf1}")
+            # if mf1 > best_mf1:
+            #     best_mf1 = mf1
+            #     torch.save(model.module.state_dict() if train_cfg['DDP'] else model.state_dict(), save_dir / f"{cfg['MODEL']['NAME']}_{cfg['MODEL']['BACKBONE']}_{cfg['DATASET']['NAME']}.pth")
+            # print(f"Current mf1: {mf1} Best mf1: {best_mf1}")
 
     pbar.close()
     end = time.gmtime(time.time() - start)
