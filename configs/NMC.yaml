@@ -1,4 +1,4 @@
-DEVICE          : cuda:1             # device used for training and evaluation (cpu, cuda, cuda0, cuda1, ...)
+DEVICE          : cuda:0             # device used for training and evaluation (cpu, cuda, cuda0, cuda1, ...)
 SAVE_DIR        : 'output'         # output folder name used for saving the model, logs and inference results
 
 MODEL:                                    
@@ -8,7 +8,7 @@ MODEL:
 
 DATASET:
   NAME          : NMCDataset                                          # dataset name to be trained with (camvid, cityscapes, ade20k)
-  ROOT          : '/data/ODIR-5K/ODIR-5K/split_images'                         # dataset root path
+  ROOT          : '/data/nmc/processed_image'                         # dataset root path
   #IGNORE_LABEL  : -1
 
 TRAIN:
@@ -20,7 +20,7 @@ TRAIN:
   DDP           : false           # use DDP training
 
 LOSS:
-  NAME          : CrossEntropy          # loss function name (ohemce, ce, dice)
+  NAME          : BCEWithLogitsLoss          # loss function name (ohemce, ce, dice)
   CLS_WEIGHTS   : false            # use class weights in loss calculation
 
 OPTIMIZER:
