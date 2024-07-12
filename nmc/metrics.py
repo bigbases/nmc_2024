@@ -16,6 +16,10 @@ class Metrics:
         pred = pred.argmax(dim=1)
         for t, p in zip(target.view(-1), pred.view(-1)):
             self.confusion_matrix[t.long(), p.long()] += 1
+            
+    def update_epi(self, pred: torch.Tensor, target: torch.Tensor) -> None:
+        for t, p in zip(target.view(-1), pred.view(-1)):
+            self.confusion_matrix[t.long(), p.long()] += 1
 
     def compute_accuracy(self) -> float:
         correct = torch.diag(self.confusion_matrix).sum()

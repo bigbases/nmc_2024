@@ -4,6 +4,8 @@ from torchvision import io
 import pandas as pd 
 import os 
 import numpy as np 
+from torchvision.io import read_image
+
 class APTOSDataset(Dataset):
     def __init__(self, image_dir, transform=None):
         print(image_dir)
@@ -52,14 +54,32 @@ class APTOSDataset(Dataset):
     
 
 class EpisodicAPTOSDataset(Dataset):
-    def __init__(self, dataframe, image_dir, n_way, k_shot, q_query, transform=None):
+    def __init__(self, image_dir, n_way, k_shot, q_query, transform=None):
         super().__init__()
-        self.dataframe = dataframe
+        data = image_dir.split('/')[-1]
+        if 'train_images' == data: 
+            # /data_2/national_AI_DD/public_data/cropped_image/cropped_train.csv
+            df_path = image_dir.replace('train_images','cropped_train.csv')
+            self.dataframe = pd.read_csv(df_path)
+            pass
+        elif 'test_images' == data:
+            df_path = image_dir.replace('test_images','cropped_test.csv')
+            self.dataframe = pd.read_csv(df_path)
+            pass
+        
+        elif 'val_images' == data:
+            df_path = image_dir.replace('val_images','cropped_valid.csv')
+            self.dataframe = pd.read_csv(df_path)
+            pass
+        else:
+            print('wrong')
         self.image_dir = image_dir
         self.transform = transform
         self.n_way = n_way
         self.k_shot = k_shot
         self.q_query = q_query
+        self.CLASSES = ['Normal', 'Mild', 'Moderate Disease Level', 'Severe', 'Proliferative']
+        self.n_classes = len(self.CLASSES)
 
     def __len__(self):
         return len(self.dataframe)
@@ -67,16 +87,15 @@ class EpisodicAPTOSDataset(Dataset):
     def __getitem__(self, idx):
         img_name = self.dataframe.iloc[idx]['id_code'] + '.png'
         img_path = os.path.join(self.image_dir, img_name)
-        #image = Image.open(img_path).convert('RGB')
-        image = io.read_image(img_path)
-        
-        one_hot = np.zeros(5)
+        image = read_image(img_path)
+
+        one_hot = np.zeros(self.n_classes)
         one_hot[self.dataframe.iloc[idx]['diagnosis']] = 1
 
         if self.transform:
             image = self.transform(image)
 
-        return image, label
+        return image, torch.tensor(one_hot)
 
     def create_episode(self):
         support_x = []
@@ -102,7 +121,7 @@ class EpisodicAPTOSDataset(Dataset):
                 query_x.append(img)
                 query_y.append(label)
 
-        return torch.stack(support_x), torch.tensor(support_y), torch.stack(query_x), torch.tensor(query_y)
+        return torch.stack(support_x), torch.stack(support_y), torch.stack(query_x), torch.stack(query_y)
     
 
 
