@@ -31,6 +31,24 @@ def evaluate(model: torch.nn.Module, dataloader: torch.utils.data.DataLoader, de
     
     return results
 
+@torch.no_grad()
+def evaluate_epi(model, dataset, device, num_episodes=10):
+    print('Evaluating...')
+    model.eval()
+    metrics = Metrics(dataset.n_classes, device=device)
+
+    for _ in tqdm(range(num_episodes)):
+        support_x, support_y, query_x, query_y = dataset.create_episode()
+
+        query_x = query_x.to(device)
+        query_y = query_y.to(device).argmax(dim=1)
+
+        preds = model(query_x).softmax(dim=1).argmax(dim=1).to(torch.int64).flatten()
+        metrics.update_epi(preds, query_y)
+
+    results = metrics.compute_metrics()
+    
+    return results
 
 def main(cfg):
     device = torch.device(cfg['DEVICE'])
