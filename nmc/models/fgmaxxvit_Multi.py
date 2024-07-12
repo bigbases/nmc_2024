@@ -1,13 +1,15 @@
 from torch import Tensor
+from torch.nn import ModuleList
 from nmc.models.base import BaseModel
 from nmc.models.heads import MLPHead
+
 
 class FGMaxxVit_Multi(BaseModel):
     def __init__(self, backbone: str = 'FGMaxxVit', num_classes: list = []):
         super().__init__(backbone, num_classes)
         
         
-        self.head = []
+        self.head = ModuleList()
         for num_class in num_classes:
             
             self.head.append(MLPHead(self.backbone.config.head_hidden_size,num_class))
