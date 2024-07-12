@@ -19,7 +19,7 @@ from nmc.losses import get_loss
 from nmc.schedulers import get_scheduler
 from nmc.optimizers import get_optimizer
 from nmc.utils.utils import fix_seeds, setup_cudnn, cleanup_ddp, setup_ddp
-from val import evaluate
+from val import evaluate_multi
 from itertools import cycle
 
 
@@ -84,13 +84,20 @@ def main(cfg, gpu, save_dir):
         train_loss = 0.0
         
         
+        pbar = tqdm(range(iters_per_epoch), total=iters_per_epoch, desc=f"Epoch: [{epoch+1}/{epochs}] Iter: [{0}/{iters_per_epoch}] LR: {lr:.8f} Loss: {train_loss:.8f}")
+
+        # for iter, (img, lbl) in pbar:
+        
         # pbar = tqdm(enumerate(trainloader), total=iters_per_epoch, desc=f"Epoch: [{epoch+1}/{epochs}] Iter: [{0}/{iters_per_epoch}] LR: {lr:.8f} Loss: {train_loss:.8f}")
-        pbar = tqdm(total=iters_per_epoch, desc=f"Epoch: [{epoch+1}/{epochs}]")
+        # pbar = tqdm(total=iters_per_epoch, desc=f"Epoch: [{epoch+1}/{epochs}]")
         cycled_loaders = [cycle(loader) for loader in trainloaders]
-        for batch_idx in range(iters_per_epoch):
+        for batch_idx in pbar:
+            
+            # for batch_idx in range(iters_per_epoch):
+            # print(batch_idx)
             optimizer.zero_grad()
             total_loss = 0
-
+            multi_loss = 0 
             # 각 작업에 대해 forward pass 및 손실 계산
             for task_idx, loader in enumerate(cycled_loaders):
                 inputs, targets = next(loader)
@@ -104,26 +111,39 @@ def main(cfg, gpu, save_dir):
                     # print(targets)
                     # print(outputs)
                     loss = loss_fn(outputs[task_idx], targets)
-                    total_loss += loss
-
-            scaler.scale(loss).backward()
+                    multi_loss += loss
+            train_loss += multi_loss.item()
+            scaler.scale(multi_loss).backward()
             scaler.step(optimizer)
             scaler.update()
             scheduler.step()
             torch.cuda.synchronize()
-
-        lr = scheduler.get_lr()
-        lr = sum(lr) / len(lr)
-        train_loss += loss.item()
-
-        pbar.set_description(f"Epoch: [{epoch+1}/{epochs}] Iter: [{iter+1}/{iters_per_epoch}] LR: {lr:.8f} Loss: {train_loss / (iter+1):.8f}")
+            lr = scheduler.get_lr()
+            lr = sum(lr) / len(lr)
+            
+            pbar.set_description(f"Epoch: [{epoch+1}/{epochs}] Iter: [{batch_idx+1}/{iters_per_epoch}] LR: {lr:.8f} Loss: {train_loss / (batch_idx+1):.8f}")
     
-        train_loss /= iter+1
+        train_loss /= batch_idx+1
         #writer.add_scalar('train/loss', train_loss, epoch)
         torch.cuda.empty_cache()
-
+        # val_cycled_loaders = [cycle(loader) for loader in valloaders  ]
         if (epoch+1) % train_cfg['EVAL_INTERVAL'] == 0 or (epoch+1) == epochs:
-            results = evaluate(model, valloader, device)
+            # val_cycled_loaders = [cycle(loader) for loader in valloaders  ]
+            results_0 = evaluate_multi(model, valloaders[0],0, device)
+            results_1 = evaluate_multi(model, valloaders[1],1, device)
+            results = {
+            'accuracy': (results_0['accuracy'] + results_1['accuracy']) / 2,
+            'avg_precision': (results_0['avg_precision'] + results_1['avg_precision']) / 2,
+            'avg_recall': (results_0['avg_recall'] + results_1['avg_recall']) / 2,
+            'avg_f1': (results_0['avg_f1'] + results_1['avg_f1']) / 2,
+            'class_metrics': {
+            'precision': {**results_0['class_metrics']['precision'], **results_1['class_metrics']['precision']},
+            'recall': {**results_0['class_metrics']['recall'], **results_1['class_metrics']['recall']},
+            'f1': {**results_0['class_metrics']['f1'], **results_1['class_metrics']['f1']}
+            }
+            }
+            
+            
             mf1 = results['avg_f1']
             #writer.add_scalar('val/mf1', mf1, epoch)
             
