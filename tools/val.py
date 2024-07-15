@@ -10,7 +10,7 @@ from torch.nn import functional as F
 from nmc.models import *
 from nmc.datasets import *
 from nmc.augmentations import get_val_augmentation
-from nmc.metrics import Metrics
+from nmc.metrics import Metrics, MultiLabelMetrics
 from nmc.utils.utils import setup_cudnn
 from typing import Tuple, Dict
 
@@ -27,6 +27,22 @@ def evaluate(model: torch.nn.Module, dataloader: torch.utils.data.DataLoader, de
         outputs = model(images)
         metrics.update(outputs, labels)
     
+    results = metrics.compute_metrics()
+    
+    return results
+
+@torch.no_grad()
+def evaluate_multilabel(model: torch.nn.Module, dataloader: torch.utils.data.DataLoader, device: str) -> Dict[str, float]:
+    print('Evaluating...')
+    model.eval()
+    metrics = MultiLabelMetrics(num_classes=dataloader.dataset.n_classes, device=device)
+    
+    for images, labels in tqdm(dataloader):
+        images = images.to(device)
+        labels = labels.to(device)
+        outputs = model(images)
+        metrics.update(outputs, labels)
+        
     results = metrics.compute_metrics()
     
     return results
