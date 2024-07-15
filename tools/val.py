@@ -65,7 +65,7 @@ def evaluate_multi(model: torch.nn.Module, dataloader: torch.utils.data.DataLoad
         # print(labels)
         task_outputs = outputs[task_id]
         metrics.update(task_outputs, labels)
-    
+        
     results = metrics.compute_metrics()
     
     return results

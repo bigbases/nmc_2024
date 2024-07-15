@@ -25,7 +25,7 @@ TRAIN:
   DDP           : false           # use DDP training
 
 LOSS:
-  NAME          : BCEWithLogitsLoss          # loss function name (ohemce, ce, dice)
+  NAME          : CrossEntropy          # loss function name (ohemce, ce, dice)
   CLS_WEIGHTS   : false            # use class weights in loss calculation
 
 OPTIMIZER:
