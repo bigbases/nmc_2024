@@ -16,11 +16,11 @@ class FGMaxxVit_Multi(BaseModel):
             
         self.apply(self._init_weights)
         
-    def forward(self,x: Tensor):
+    def forward(self,x: Tensor, task_type : int):
         y = self.backbone(x)
         
         # y = self.head(y)
-        return {task: self.head[task](y) for task in range(len(self.head))}
+        return self.head[task_type](y)
         # return y
     
     

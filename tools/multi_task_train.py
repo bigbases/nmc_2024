@@ -106,11 +106,11 @@ def main(cfg, gpu, save_dir):
                 # print(f"Model is on device: {next(model.parameters()).device}")
                 # exit()
                 with autocast(enabled=train_cfg['AMP']):
-                    outputs = model(inputs)
+                    outputs = model(inputs,task_idx)
                     # print(task_idx)
                     # print(targets)
                     # print(outputs)
-                    loss = loss_fn(outputs[task_idx], targets)
+                    loss = loss_fn(outputs, targets)
                     multi_loss += loss
             train_loss += multi_loss.item()
             scaler.scale(multi_loss).backward()
