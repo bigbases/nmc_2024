@@ -19,7 +19,7 @@ from nmc.losses import get_loss
 from nmc.schedulers import get_scheduler
 from nmc.optimizers import get_optimizer
 from nmc.utils.utils import fix_seeds, setup_cudnn, cleanup_ddp, setup_ddp
-from val import evaluate
+from val import evaluate, evaluate_multilabel
 
 def main(cfg, gpu, save_dir):
     start = time.time()
@@ -91,7 +91,10 @@ def main(cfg, gpu, save_dir):
         torch.cuda.empty_cache()
 
         if (epoch+1) % train_cfg['EVAL_INTERVAL'] == 0 or (epoch+1) == epochs:
-            results = evaluate(model, valloader, device)
+            if dataset_cfg['NAME'] == 'NMCDataset':
+                results = evaluate_multilabel(model, valloader, device)
+            else:
+                results = evaluate(model, valloader, device)
             mf1 = results['avg_f1']
             #writer.add_scalar('val/mf1', mf1, epoch)
             
