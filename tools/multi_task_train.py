@@ -153,7 +153,16 @@ def main(cfg, gpu, save_dir):
             print(f"Average F1: {results['avg_f1']:.2f}%")
 
             print("\nPer-class metrics:")
-            for class_idx, metrics in results['class_metrics']['precision'].items():
+            print('Task 1 : ')
+            for class_idx, metrics in results_0['class_metrics']['precision'].items():
+                print(f"Class {class_idx}:")
+                print(f"  Precision: {results['class_metrics']['precision'][class_idx]:.2f}%")
+                print(f"  Recall: {results['class_metrics']['recall'][class_idx]:.2f}%")
+                print(f"  F1: {results['class_metrics']['f1'][class_idx]:.2f}%")
+                
+            
+            print('Task 2 : ')
+            for class_idx, metrics in results_0['class_metrics']['precision'].items():
                 print(f"Class {class_idx}:")
                 print(f"  Precision: {results['class_metrics']['precision'][class_idx]:.2f}%")
                 print(f"  Recall: {results['class_metrics']['recall'][class_idx]:.2f}%")

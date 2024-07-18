@@ -70,6 +70,9 @@ class Metrics:
 
     def update(self, pred: Tensor, target: Tensor) -> None:
         pred = pred.argmax(dim=1)
+        target = target.argmax(dim=1)
+        # print(pred)
+        # print(target)
         for t, p in zip(target.view(-1), pred.view(-1)):
             self.confusion_matrix[t.long(), p.long()] += 1
             
