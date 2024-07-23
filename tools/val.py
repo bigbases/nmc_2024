@@ -72,15 +72,17 @@ def evaluate_multi(model: torch.nn.Module, dataloader: torch.utils.data.DataLoad
     print('Evaluating...')
     model.eval()
     metrics = Metrics(num_classes=dataloader.dataset.n_classes, device=device)
-
     for images, labels in tqdm(dataloader):
         images = images.to(device)
         labels = labels.to(device)
-        outputs = model(images)
+        outputs = model(images,task_id)
+        # print(labels)
+        # print(outputs)
+        # print(labels.shape , outputs.shape)
         # print(outputs[task_id])
         # print(labels)
-        task_outputs = outputs[task_id]
-        metrics.update(task_outputs, labels)
+        # task_outputs = outputs[task_id]
+        metrics.update(outputs, labels)
         
     results = metrics.compute_metrics()
     

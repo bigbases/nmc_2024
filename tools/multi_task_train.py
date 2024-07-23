@@ -122,7 +122,7 @@ def main(cfg, gpu, save_dir):
             lr = sum(lr) / len(lr)
             
             pbar.set_description(f"Epoch: [{epoch+1}/{epochs}] Iter: [{batch_idx+1}/{iters_per_epoch}] LR: {lr:.8f} Loss: {train_loss / (batch_idx+1):.8f}")
-    
+            
         train_loss /= batch_idx+1
         #writer.add_scalar('train/loss', train_loss, epoch)
         torch.cuda.empty_cache()
@@ -153,7 +153,16 @@ def main(cfg, gpu, save_dir):
             print(f"Average F1: {results['avg_f1']:.2f}%")
 
             print("\nPer-class metrics:")
-            for class_idx, metrics in results['class_metrics']['precision'].items():
+            print('Task 1 : ')
+            for class_idx, metrics in results_0['class_metrics']['precision'].items():
+                print(f"Class {class_idx}:")
+                print(f"  Precision: {results['class_metrics']['precision'][class_idx]:.2f}%")
+                print(f"  Recall: {results['class_metrics']['recall'][class_idx]:.2f}%")
+                print(f"  F1: {results['class_metrics']['f1'][class_idx]:.2f}%")
+                
+            
+            print('Task 2 : ')
+            for class_idx, metrics in results_0['class_metrics']['precision'].items():
                 print(f"Class {class_idx}:")
                 print(f"  Precision: {results['class_metrics']['precision'][class_idx]:.2f}%")
                 print(f"  Recall: {results['class_metrics']['recall'][class_idx]:.2f}%")
@@ -161,9 +170,10 @@ def main(cfg, gpu, save_dir):
 
             if mf1 > best_mf1:
                 best_mf1 = mf1
-                torch.save(model.module.state_dict() if train_cfg['DDP'] else model.state_dict(), save_dir / f"{model_cfg['NAME']}_{model_cfg['BACKBONE']}_{dataset_cfg['NAME']}.pth")
+                torch.save(model.module.state_dict() if train_cfg['DDP'] else model.state_dict(), f"{save_dir}/{model_cfg['NAME']}_{model_cfg['BACKBONE']}_Multi_task.pth")
             print(f"Current mf1: {mf1} Best mf1: {best_mf1}")
-
+        print(save_dir)
+        torch.save(model.module.state_dict() if train_cfg['DDP'] else model.state_dict(), f"{save_dir}/{model_cfg['NAME']}_{model_cfg['BACKBONE']}_Multi_task.pth")
     #writer.close()
     pbar.close()
     end = time.gmtime(time.time() - start)
