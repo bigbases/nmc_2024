@@ -5,6 +5,7 @@ MODEL:
   NAME          : FGMaxxVit                                           # name of the model you are using
   BACKBONE      : FGMaxxVit                                                  # model variant
   PRETRAINED    : 'checkpoints/pretrained/maxvit_base_tf_512.in1k_pretrained_weights.pth'              # backbone model's weight 
+  UNFREEZE      : 'encoder.stages.3'                         # Freeze all layers without UNFREEZE ['encoder.stages.0', 'encoder.stages.1', 'encoder.stages.2', 'encoder.stages.3', None]
 
 DATASET:
   NAME          : APTOSDataset                                          # dataset name to be trained with (camvid, cityscapes, ade20k)
@@ -14,7 +15,7 @@ DATASET:
 TRAIN:
   IMAGE_SIZE    : [1024, 1024]      # training image size in (h, w)
   BATCH_SIZE    : 1               # batch size used to train
-  EPOCHS        : 500             # number of epochs to train
+  EPOCHS        : 1            # number of epochs to train
   EVAL_INTERVAL : 50              # evaluation interval during training
   AMP           : false           # use AMP in training
   DDP           : false           # use DDP training

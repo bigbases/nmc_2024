@@ -5,6 +5,7 @@ MODEL:
   NAME          : FGMaxxVit                                           # name of the model you are using
   BACKBONE      : FGMaxxVit                                                  # model variant
   PRETRAINED    : 'checkpoints/pretrained/maxvit_base_tf_512.in1k_pretrained_weights.pth'              # backbone model's weight 
+  UNFREEZE      : 'encoder.stages.3'                         # Freeze all layers without UNFREEZE ['encoder.stages.0', 'encoder.stages.1', 'encoder.stages.2', 'encoder.stages.3', None]
 
 DATASET:
   NAME          : ODIRDataset                                          # dataset name to be trained with (camvid, cityscapes, ade20k)

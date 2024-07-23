@@ -50,6 +50,7 @@ def main(cfg, gpu, save_dir):
 
     model = eval(model_cfg['NAME'])(model_cfg['BACKBONE'], [8,5])
     model.init_pretrained(model_cfg['PRETRAINED'])
+    model.unfreezing_layer(model_cfg['UNFREEZE']) 
     model = model.to(device)
     if train_cfg['DDP']: 
         sampler = DistributedSampler(trainset, dist.get_world_size(), dist.get_rank(), shuffle=True)
