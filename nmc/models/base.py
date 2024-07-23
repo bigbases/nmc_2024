@@ -38,3 +38,11 @@ class BaseModel(nn.Module):
     def init_pretrained_fgmaxxvit(self, pretrained: str = None) -> None:
         self.backbone.load_state_dict(torch.load(pretrained, map_location='cpu'), strict=False)
         
+    def unfreezing_layer(self, layer):
+        if layer is not None:
+            for name, param in self.backbone.named_parameters():
+                if name.startswith(layer):
+                    param.requires_grad = True
+                else:
+                    param.requires_grad = False
+        

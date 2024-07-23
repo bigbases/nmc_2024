@@ -38,6 +38,7 @@ def main(cfg, gpu, save_dir):
     
     model = eval(cfg['MODEL']['NAME'])(cfg['MODEL']['BACKBONE'], episodic_dataset.n_classes)
     model.init_pretrained(cfg['MODEL']['PRETRAINED'])
+    model.unfreezing_layer(cfg['MODEL']['UNFREEZE']) 
     model = model.to(device)
     
     print("Model is initialized")
