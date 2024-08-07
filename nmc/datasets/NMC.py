@@ -5,6 +5,7 @@ import os
 import numpy as np 
 from sklearn.preprocessing import MultiLabelBinarizer
 from torchvision.io import read_image
+from itertools import chain
 
 
 
@@ -70,8 +71,6 @@ class NMCDataset(Dataset):
 
         return image, torch.tensor(label_vector, dtype=torch.float32)
 
-
-
 class EpisodicNMCDataset(Dataset):
     def __init__(self, image_dir, n_way, k_shot, q_query, transform=None):
         super().__init__()
@@ -85,14 +84,11 @@ class EpisodicNMCDataset(Dataset):
         else:
             raise ValueError('Invalid image directory name.')
         
-        
         self.dataframe = pd.read_csv(df_path)
         self.dataframe = self.dataframe.dropna()
         
-        
         def process_label(x):
             if isinstance(x, str):
-                # print(x)
                 return x.split(',')
             else:
                 raise ValueError(f"Unexpected label value: {x}")
@@ -106,22 +102,23 @@ class EpisodicNMCDataset(Dataset):
         # Initialize the MultiLabelBinarizer and fit_transform the label column
         self.mlb = MultiLabelBinarizer(classes=[int(i) for i in range(11)])
         self.one_hot_labels = self.mlb.fit_transform(self.dataframe['label'])
-        unique_labels = set(label for sublist in self.dataframe['label'] for label in sublist)
-        print("Unique labels in dataframe:", unique_labels)
+        self.unique_labels = set(label for sublist in self.dataframe['label'] for label in sublist)
+        print("Unique labels in dataframe:", self.unique_labels)
         self.image_dir = image_dir
         self.transform = transform
-        
-        
 
         self.CLASSES = [0,1,2,3,4,5,6,7,8,9,10]
         self.n_classes = len(self.CLASSES)
         self.n_way = n_way
         self.k_shot = k_shot
         self.q_query = q_query
+    
     def __len__(self):
         return len(self.dataframe)
 
     def __getitem__(self, idx):
+        if idx < 0 or idx >= len(self.dataframe):
+            raise IndexError(f"Index {idx} is out-of-bounds")
         img_name = self.dataframe.iloc[idx]['image']
         img_path = os.path.join(self.image_dir, img_name)
         image = read_image(img_path)
@@ -138,28 +135,41 @@ class EpisodicNMCDataset(Dataset):
         support_y = []
         query_x = []
         query_y = []
+        
 
-        chosen_classes = np.random.choice(self.dataframe['diagnosis'].unique(), self.n_way, replace=False)
+        chosen_classes = np.random.choice(list(self.unique_labels), self.n_way, replace=False)
+        chosen_classes_set = set(chosen_classes)
+        print(f"chosen_classes_set: {chosen_classes_set}")
+        self.dataframe = self.dataframe.reset_index(drop=True)
+        
+        # Find all indices where the label contains at least one of the chosen classes
+        cls_indices = self.dataframe[self.dataframe['label'].apply(lambda labels: bool(set(labels) & chosen_classes_set))].index.tolist()
+        # Print the labels of samples identified by cls_indices
+        print(f"cls_indices (length: {len(cls_indices)}): {cls_indices}")
 
-        for cls in chosen_classes:
-            cls_indices = self.dataframe[self.dataframe['diagnosis'] == cls].index.tolist()
-            chosen_indices = np.random.choice(cls_indices, self.k_shot + self.q_query, replace=False)
-            support_indices = chosen_indices[:self.k_shot]
-            query_indices = chosen_indices[self.k_shot:]
+        if len(cls_indices) < self.k_shot + self.q_query:
+            raise ValueError("Not enough samples to create an episode with the chosen classes.")
+        
+        chosen_indices = np.random.choice(cls_indices, self.k_shot + self.q_query, replace=False)
+        print(f"Chosen indices: {chosen_indices}")
+        support_indices = chosen_indices[:self.k_shot]
+        query_indices = chosen_indices[self.k_shot:]
 
-            for idx in support_indices:
-                img, label = self.__getitem__(idx)
-                support_x.append(img)
-                support_y.append(label)
+        for idx in support_indices:
+            if idx < 0 or idx >= len(self.dataframe):
+                raise IndexError(f"Support index {idx} is out-of-bounds")
+            img, label = self.__getitem__(idx)
+            support_x.append(img)
+            support_y.append(label)
 
-            for idx in query_indices:
-                img, label = self.__getitem__(idx)
-                query_x.append(img)
-                query_y.append(label)
+        for idx in query_indices:
+            if idx < 0 or idx >= len(self.dataframe):
+                raise IndexError(f"Query index {idx} is out-of-bounds")
+            img, label = self.__getitem__(idx)
+            query_x.append(img)
+            query_y.append(label)
 
         return torch.stack(support_x), torch.stack(support_y), torch.stack(query_x), torch.stack(query_y)
-    
-
 
 # Epdisode를 만들어주는 DataLoader 추가
 def episodic_dataloader(dataset, num_episodes):
