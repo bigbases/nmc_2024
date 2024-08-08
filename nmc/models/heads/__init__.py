@@ -1,6 +1,6 @@
 from .fpn import FPNHead
-from .mlp import MLPHead
+from .mlp import MLPHead, MLPMultiHead
 
 __all__ = [
-    'FPNHead',
+    'FPNHead','MLPMultiHead'
     ]
