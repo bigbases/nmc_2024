@@ -25,27 +25,23 @@ class MLPHead(nn.Module):
         return logits
 
 class MLPMultiHead(nn.Module):
-    def __init__(self, num_features, num_classes, num_embedding=768, pool_type='avg', drop_rate=0.0):
+    def __init__(self, num_features, num_embedding=768, pool_type='avg', drop_rate=0.0):
         super().__init__()
         self.global_pool = SelectAdaptivePool2d(pool_type=pool_type, flatten=True)
         self.norm = LayerNorm2d(num_features, eps=1e-5)
         
-        self.multihead = nn.ModuleList()
-        for _ in range(num_classes):
-            self.multihead.append(nn.Sequential(
+        self.head = nn.Sequential(
                 nn.Linear(num_features, num_embedding),
                 nn.Tanh()
-            ))
+            )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.norm(x)
         x = self.global_pool(x)
         
-        embeddings = []
-        for head in self.multihead:
-            embeddings.append(head(x))
+        x = self.head(x)
         
-        return torch.stack(embeddings, dim=1)
+        return x
     
     
 if __name__ == '__main__':
@@ -54,7 +50,7 @@ if __name__ == '__main__':
     features = torch.zeros(1, 768, 16, 16)
     outs = head(features)
     print(outs.shape)
-    head = MLPMultiHead(num_features=768, num_classes = 10)
+    head = MLPMultiHead(num_features=768)
     features = torch.zeros(1, 768, 16, 16)
     embeddings = head(features)
     for i in range(len(embeddings)):
