@@ -3,6 +3,7 @@ import argparse
 import yaml
 import time
 import multiprocessing as mp
+import torch.nn.functional as F
 from tabulate import tabulate
 from tqdm import tqdm
 from torch.utils.data import DataLoader
@@ -55,6 +56,19 @@ def main(cfg, gpu, save_dir):
     scheduler = get_scheduler(sched_cfg['NAME'], optimizer, num_episodes, sched_cfg['POWER'], num_episodes * sched_cfg['WARMUP'], sched_cfg['WARMUP_RATIO'])
     scaler = GradScaler(enabled=train_cfg['AMP'])
     
+    def dot_similarity(embeddings):
+        #embeddings = [batch,n_class,embedding]
+        embeddings = F.normalize(embeddings, p=2, dim=-1)
+        # Compute dot product similarity for each class
+        batch_size, n_class, embedding_dim = embeddings.shape
+        similarity = torch.zeros(n_class, batch_size, batch_size, device=embeddings.device)
+        
+        for c in range(n_class):
+            class_embeddings = embeddings[:, c, :]  # [batch, embedding_dim]
+            similarity[c] = torch.mm(class_embeddings, class_embeddings.t())
+        
+        return similarity
+        
     model.train()
     pbar = tqdm(total=num_episodes, desc=f"Episode: [{0}/{num_episodes}] Loss: {0:.8f}")
     
@@ -69,31 +83,44 @@ def main(cfg, gpu, save_dir):
 
         optimizer.zero_grad(set_to_none=True)
         support_x, support_y = support_x.to(device), support_y.to(device)
+        # support_y = [batch,n_class]
         query_x, query_y = query_x.to(device), query_y.to(device)
         
         with autocast(enabled=train_cfg['AMP']):
             support_pred = model(support_x,support_y)
             #support_pred = [batch,n_class,embedding]
             
-        dot_similarity(support_pred)
-        #dot_similarity = [n_class,batch,batch,embedding]
+        similarity_matrix = dot_similarity(support_pred)
+        #dot_similarity = [n_class,batch,batch]
         
-        for c in range(len(dot_similarity)):
-            if transposed_tensor[c].sum() <2:
-                continue
-            # contrastive loss 계산
+        transposed_y = support_y.transpose(0,1)
+        #transposed_y = [n_class,batch]
         
-        
-        
-        
-        
-        for i,pred in enumerate(support_pred):
-            if pred is not None:
-                with autocast(enabled=train_cfg['AMP']):
-                    task_loss=criterion(pred,support_y[:,i])
+        for c in range(similarity_matrix.size(0)):
+            class_similarities = similarity_matrix[c]
+            class_labels = support_y[:,c]
             
-            support_loss = criterion(support_pred, support_y)
-
+            if class_labels.sum() < 2:  # skip if less than 2 samples for this class
+                continue
+        
+            class_loss = contrastive_loss(class_similarities, class_labels)
+            total_loss += class_loss
+                
+            
+            
+                
+            # for b in range(len(support_pred)):
+            #     if transposed_y[c][b].sum() <2: 
+            #         continue
+            #     positive = similarity_matrix[c][b][b]
+            #     negative_sum = similarity_matrix[c][b].sum()-positive
+                
+            #     class_loss = contrastive_loss(negative_sum,positive)
+            #     scaler.scale(class_loss).backward()
+        
+        
+        
+        
         scaler.scale(support_loss).backward()
         scaler.step(optimizer)
         scaler.update()
