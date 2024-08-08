@@ -59,7 +59,7 @@ def main(cfg, gpu, save_dir):
     pbar = tqdm(total=num_episodes, desc=f"Episode: [{0}/{num_episodes}] Loss: {0:.8f}")
     
     print("Start Training ...")
-
+    
     for episode_idx in range(num_episodes):
         print(f"Episode index: {episode_idx}")
         if train_cfg['DDP']:
@@ -81,10 +81,16 @@ def main(cfg, gpu, save_dir):
         scheduler.step()
         torch.cuda.synchronize()
 
-        # Evaluate on the query set within the same episode
-        with torch.no_grad():
-            query_pred = model(query_x).softmax(dim=1)
+        optimizer.zero_grad(set_to_none=True)
+        with autocast(enabled=train_cfg['AMP']):
+            query_pred = model(query_x)
             query_loss = criterion(query_pred, query_y)
+
+        scaler.scale(query_loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
+        scheduler.step()
+        torch.cuda.synchronize()
 
         train_loss = support_loss.item()
         query_loss_item = query_loss.item()
@@ -94,7 +100,6 @@ def main(cfg, gpu, save_dir):
         if (episode_idx + 1) % train_cfg['EVAL_INTERVAL'] == 0 or (episode_idx + 1) == num_episodes:
             results = evaluate_epi(model, episodic_dataset, device, num_episodes=10)
             mf1 = results['avg_f1']
-            #writer.add_scalar('val/mf1', mf1, epoch)
             
             print(f"Accuracy: {results['accuracy']:.2f}%")
             print(f"Average Precision: {results['avg_precision']:.2f}%")
@@ -112,10 +117,6 @@ def main(cfg, gpu, save_dir):
                 best_mf1 = mf1
                 torch.save(model.module.state_dict() if train_cfg['DDP'] else model.state_dict(), save_dir / f"{model_cfg['NAME']}_{model_cfg['BACKBONE']}_{dataset_cfg['NAME']}.pth")
             print(f"Current mf1: {mf1} Best mf1: {best_mf1}")
-            # if mf1 > best_mf1:
-            #     best_mf1 = mf1
-            #     torch.save(model.module.state_dict() if train_cfg['DDP'] else model.state_dict(), save_dir / f"{cfg['MODEL']['NAME']}_{cfg['MODEL']['BACKBONE']}_{cfg['DATASET']['NAME']}.pth")
-            # print(f"Current mf1: {mf1} Best mf1: {best_mf1}")
 
     pbar.close()
     end = time.gmtime(time.time() - start)
