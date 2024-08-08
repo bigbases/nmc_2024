@@ -29,7 +29,7 @@ def main(cfg, gpu, save_dir):
     num_episodes = train_cfg['NUM_EPISODES']
     dataset_cfg =  cfg['DATASET']
     
-    image_dir = Path(cfg['DATASET']['ROOT']) / 'train_images'
+    image_dir = Path(dataset_cfg['ROOT']) / 'train_images'
     transformations = get_train_augmentation(train_cfg['IMAGE_SIZE'])
 
     episodic_dataset = eval(dataset_cfg['NAME'])(dataset_cfg['ROOT']+'/train_images', dataset_cfg['N_WAY'], dataset_cfg['K_SHOT'], dataset_cfg['Q_QUERY'], transformations)
@@ -72,7 +72,26 @@ def main(cfg, gpu, save_dir):
         query_x, query_y = query_x.to(device), query_y.to(device)
         
         with autocast(enabled=train_cfg['AMP']):
-            support_pred = model(support_x)
+            support_pred = model(support_x,support_y)
+            #support_pred = [batch,n_class,embedding]
+            
+        dot_similarity(support_pred)
+        #dot_similarity = [n_class,batch,batch,embedding]
+        
+        for c in range(len(dot_similarity)):
+            if transposed_tensor[c].sum() <2:
+                continue
+            # contrastive loss 계산
+        
+        
+        
+        
+        
+        for i,pred in enumerate(support_pred):
+            if pred is not None:
+                with autocast(enabled=train_cfg['AMP']):
+                    task_loss=criterion(pred,support_y[:,i])
+            
             support_loss = criterion(support_pred, support_y)
 
         scaler.scale(support_loss).backward()
