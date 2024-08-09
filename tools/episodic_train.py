@@ -59,7 +59,6 @@ def main(cfg, gpu, save_dir):
     def dot_similarity(embeddings):
         #embeddings = [batch,n_class,embedding]
         embeddings = F.normalize(embeddings, p=2, dim=-1)
-        # Compute dot product similarity for each class
         batch_size, n_class, embedding_dim = embeddings.shape
         similarity = torch.zeros(n_class, batch_size, batch_size, device=embeddings.device)
         
@@ -89,45 +88,35 @@ def main(cfg, gpu, save_dir):
         with autocast(enabled=train_cfg['AMP']):
             support_pred = model(support_x,support_y)
             #support_pred = [batch,n_class,embedding]
-            
-        similarity_matrix = dot_similarity(support_pred)
-        #dot_similarity = [n_class,batch,batch]
-        
-        transposed_y = support_y.transpose(0,1)
-        #transposed_y = [n_class,batch]
-        
-        for c in range(similarity_matrix.size(0)):
-            class_similarities = similarity_matrix[c]
-            class_labels = support_y[:,c]
-            
-            if class_labels.sum() < 2:  # skip if less than 2 samples for this class
-                continue
-        
-            class_loss = contrastive_loss(class_similarities, class_labels)
-            total_loss += class_loss
                 
+            similarity_matrix = dot_similarity(support_pred)
+            #dot_similarity = [n_class,batch,batch]
+            support_y_t = support_y.t()
             
-            
+            for c in range(similarity_matrix.size(0)):
+                class_similarities = similarity_matrix[c]
+                class_labels = support_y_t[c]
                 
-            # for b in range(len(support_pred)):
-            #     if transposed_y[c][b].sum() <2: 
-            #         continue
-            #     positive = similarity_matrix[c][b][b]
-            #     negative_sum = similarity_matrix[c][b].sum()-positive
+                if class_labels.sum() < 2:  # skip if less than 2 samples for this class
+                    continue
+                class_loss = criterion(class_similarities, class_labels) #contrastive loss
+
+                # 역전파
+                # 계산에 참여한 head만 자동으로 계산됨(디버깅함)
+                # retain_traph를 통해 batch단위 loss 역전파동안 계산그래프 유지
+                scaler.scale(class_loss).backward(retain_graph=True)
                 
-            #     class_loss = contrastive_loss(negative_sum,positive)
-            #     scaler.scale(class_loss).backward()
-        
-        
-        
-        
-        scaler.scale(support_loss).backward()
+                
+        # opt step은 한번만
         scaler.step(optimizer)
         scaler.update()
         scheduler.step()
         torch.cuda.synchronize()
 
         optimizer.zero_grad(set_to_none=True)
+            
+        
+        
         with autocast(enabled=train_cfg['AMP']):
             query_pred = model(query_x)
             query_loss = criterion(query_pred, query_y)
