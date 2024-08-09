@@ -3,6 +3,43 @@ from torch import nn, Tensor
 from torch.nn import functional as F
 from typing import Union
 
+class Contrastive(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+    def forward(self,similarities, labels, temperature=0.07, eps=1e-8):
+        # similarities : [batch,batch] 특정 class embedding의 similarity matrix
+        # labels : [batch] 특정 class embedding의 class 정보
+        
+        # temperature(T) scaling
+        similarities = similarities / temperature
+
+        # class mask : [batch,batch]
+        labels = labels.contiguous().view(-1, 1)
+        mask = torch.eq(labels, labels.T).float()
+
+        # Exclude self-similarity
+        logits_mask = torch.scatter(
+            torch.ones_like(mask),
+            1,
+            torch.arange(mask.shape[0]).view(-1, 1).to(mask.device),
+            0
+        )
+        
+        # exp
+        exp_similarities = torch.exp(similarities) 
+        
+        pos_sim = (mask * exp_similarities * logits_mask)
+        pos_neg_sim = (logits_mask * exp_similarities).sum(1, keepdim=True)
+        
+        loss_matrix = -torch.log((pos_sim + eps)/(pos_neg_sim+ eps))
+        
+        fit_mask = torch.isfinite(loss_matrix)
+        fit_matrix = torch.where(fit_mask, loss_matrix, torch.zeros_like(loss_matrix))
+        total_loss = fit_matrix.sum()
+        valid_count = fit_mask.sum()
+
+        average_loss = total_loss / valid_count
+        return average_loss
 
 class CrossEntropy(nn.Module):
     def __init__(self, weight: Tensor = None) -> None:
@@ -68,11 +105,11 @@ class Dice(nn.Module):
         return self._forward(preds, targets)
 
 
-__all__ = ['CrossEntropy', 'OhemCrossEntropy', 'Dice']
+__all__ = ['CrossEntropy', 'OhemCrossEntropy', 'Dice', 'Contrastive']
 
 
 def get_loss(loss_fn_name: str = 'CrossEntropy', cls_weights: Union[Tensor, None] = None):
-    available_loss_functions = ['CrossEntropy', 'BCEWithLogitsLoss', 'MSELoss', 'L1Loss']
+    available_loss_functions = ['CrossEntropy', 'BCEWithLogitsLoss', 'MSELoss', 'L1Loss', 'Contrastive']
     
     assert loss_fn_name in available_loss_functions, f"Unavailable loss function name >> {loss_fn_name}.\nAvailable loss functions: {available_loss_functions}"
     
@@ -84,6 +121,8 @@ def get_loss(loss_fn_name: str = 'CrossEntropy', cls_weights: Union[Tensor, None
         return nn.MSELoss()
     elif loss_fn_name == 'L1Loss':
         return nn.L1Loss()
+    elif loss_fn_name == 'Contrastive':
+        return Contrastive()
 
 
 if __name__ == '__main__':

@@ -1,3 +1,4 @@
+import torch
 from torch import Tensor
 from torch.nn import ModuleList
 from nmc.models.base import BaseModel
@@ -18,8 +19,6 @@ class FGMaxxVit_Multi(BaseModel):
     def forward(self,x: Tensor, task_type : Tensor):
         y = self.backbone(x)
         # y.shape = [batch,768]
-        batch = y.shape[0]
-        
         outputs = torch.stack([head(y) for head in self.head], dim=1)  
         # [batch, num_classes, 256]
         

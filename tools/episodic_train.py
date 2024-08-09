@@ -3,6 +3,7 @@ import argparse
 import yaml
 import time
 import multiprocessing as mp
+import torch.nn.functional as F
 from tabulate import tabulate
 from tqdm import tqdm
 from torch.utils.data import DataLoader
@@ -55,6 +56,18 @@ def main(cfg, gpu, save_dir):
     scheduler = get_scheduler(sched_cfg['NAME'], optimizer, num_episodes, sched_cfg['POWER'], num_episodes * sched_cfg['WARMUP'], sched_cfg['WARMUP_RATIO'])
     scaler = GradScaler(enabled=train_cfg['AMP'])
     
+    def dot_similarity(embeddings):
+        #embeddings = [batch,n_class,embedding]
+        embeddings = F.normalize(embeddings, p=2, dim=-1)
+        batch_size, n_class, embedding_dim = embeddings.shape
+        similarity = torch.zeros(n_class, batch_size, batch_size, device=embeddings.device)
+        
+        for c in range(n_class):
+            class_embeddings = embeddings[:, c, :]  # [batch, embedding_dim]
+            similarity[c] = torch.mm(class_embeddings, class_embeddings.t())
+        
+        return similarity
+        
     model.train()
     pbar = tqdm(total=num_episodes, desc=f"Episode: [{0}/{num_episodes}] Loss: {0:.8f}")
     
@@ -69,38 +82,41 @@ def main(cfg, gpu, save_dir):
 
         optimizer.zero_grad(set_to_none=True)
         support_x, support_y = support_x.to(device), support_y.to(device)
+        # support_y = [batch,n_class]
         query_x, query_y = query_x.to(device), query_y.to(device)
         
         with autocast(enabled=train_cfg['AMP']):
             support_pred = model(support_x,support_y)
             #support_pred = [batch,n_class,embedding]
+                
+            similarity_matrix = dot_similarity(support_pred)
+            #dot_similarity = [n_class,batch,batch]
+            support_y_t = support_y.t()
             
-        dot_similarity(support_pred)
-        #dot_similarity = [n_class,batch,batch,embedding]
-        
-        for c in range(len(dot_similarity)):
-            if transposed_tensor[c].sum() <2:
-                continue
-            # contrastive loss 계산
-        
-        
-        
-        
-        
-        for i,pred in enumerate(support_pred):
-            if pred is not None:
-                with autocast(enabled=train_cfg['AMP']):
-                    task_loss=criterion(pred,support_y[:,i])
-            
-            support_loss = criterion(support_pred, support_y)
+            for c in range(similarity_matrix.size(0)):
+                class_similarities = similarity_matrix[c]
+                class_labels = support_y_t[c]
+                
+                if class_labels.sum() < 2:  # skip if less than 2 samples for this class
+                    continue
+                class_loss = criterion(class_similarities, class_labels) #contrastive loss
 
-        scaler.scale(support_loss).backward()
+                # 역전파
+                # 계산에 참여한 head만 자동으로 계산됨(디버깅함)
+                # retain_traph를 통해 batch단위 loss 역전파동안 계산그래프 유지
+                scaler.scale(class_loss).backward(retain_graph=True)
+                
+                
+        # opt step은 한번만
         scaler.step(optimizer)
         scaler.update()
         scheduler.step()
         torch.cuda.synchronize()
 
         optimizer.zero_grad(set_to_none=True)
+            
+        
+        
         with autocast(enabled=train_cfg['AMP']):
             query_pred = model(query_x)
             query_loss = criterion(query_pred, query_y)
