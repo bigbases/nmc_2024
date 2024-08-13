@@ -86,7 +86,7 @@ def main(cfg, gpu, save_dir):
         query_x, query_y = query_x.to(device), query_y.to(device)
         
         with autocast(enabled=train_cfg['AMP']):
-            support_pred = model(support_x,support_y)
+            support_pred = model(support_x, support_y)
             #support_pred = [batch,n_class,embedding]
                 
             similarity_matrix = dot_similarity(support_pred)
@@ -112,11 +112,8 @@ def main(cfg, gpu, save_dir):
         scaler.update()
         scheduler.step()
         torch.cuda.synchronize()
-
-        optimizer.zero_grad(set_to_none=True)
-            
         
-        
+        optimizer.zero_grad(set_to_none=True)         
         with autocast(enabled=train_cfg['AMP']):
             query_pred = model(query_x)
             query_loss = criterion(query_pred, query_y)
