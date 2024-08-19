@@ -21,7 +21,7 @@ from nmc.schedulers import get_scheduler
 from nmc.optimizers import get_optimizer
 from nmc.utils.utils import fix_seeds, setup_cudnn, cleanup_ddp, setup_ddp
 from val import evaluate_epi
-
+from episodic_utils import * 
 def main(cfg, gpu, save_dir):
     start = time.time()
     best_mf1 = 0.0
@@ -56,19 +56,7 @@ def main(cfg, gpu, save_dir):
     
     scheduler = get_scheduler(sched_cfg['NAME'], optimizer, num_episodes, sched_cfg['POWER'], num_episodes * sched_cfg['WARMUP'], sched_cfg['WARMUP_RATIO'])
     scaler = GradScaler(enabled=train_cfg['AMP'])
-    
-    def dot_similarity(embeddings):
-        #embeddings = [batch,n_class,embedding]
-        embeddings = F.normalize(embeddings, p=2, dim=-1)
-        batch_size, n_class, embedding_dim = embeddings.shape
-        similarity = torch.zeros(n_class, batch_size, batch_size, device=embeddings.device)
-        
-        for c in range(n_class):
-            class_embeddings = embeddings[:, c, :]  # [batch, embedding_dim]
-            similarity[c] = torch.mm(class_embeddings, class_embeddings.t())
-        
-        return similarity
-        
+
     model.train()
     pbar = tqdm(total=num_episodes, desc=f"Episode: [{0}/{num_episodes}] Loss: {0:.8f}")
     
@@ -114,30 +102,7 @@ def main(cfg, gpu, save_dir):
         scheduler.step()
         torch.cuda.synchronize()
         
-        # START ---------------Query 유사도 계산을 위한 함수 ---------------------------
-        def compute_prototypes_multi_label(embeddings, labels, num_classes):
-            batch_size, n_classes, embedding_dim = embeddings.shape
-            prototypes = []
-            for c in range(num_classes):
-                class_mask = labels[:, c] > 0  # 특정 클래스 c에 속하는 샘플을 선택
-                if class_mask.sum() == 0:
-                    prototypes.append(torch.zeros(embedding_dim, device=embeddings.device)) # 없으면 0 vector
-                else:
-                    class_embeddings = embeddings[class_mask]
-                    prototype = class_embeddings[:,c,:].mean(dim=0) # class 별 Embedding의 평균 추출 
-                    prototypes.append(prototype)
-            return torch.stack(prototypes) # ( n_class , embedding )
-
-        def dot_product_similarity(query_embeddings, prototypes):
-            """
-            query_embeddings: (batch_size, num_classes, embedding_dim)
-            prototypes: (1, num_classes, embedding_dim)
-            """
-            similarities = torch.matmul(query_embeddings, prototypes.transpose(1, 2))  # (15, 11, 11)
-            similarities = similarities.diagonal(dim1=-2, dim2=-1)  # (15, 11) 대각 행렬만 추출하여 각 class 별 embedding의 유사도를 추출 
-            return similarities # ( batch size , n_class )
-        # END ---------------Query 유사도 계산을 위한 함수 ---------------------------
-            
+        
         optimizer.zero_grad(set_to_none=True)         
         with autocast(enabled=train_cfg['AMP']):
             support_pred = model(support_x)
@@ -178,7 +143,7 @@ def main(cfg, gpu, save_dir):
 
             if mf1 > best_mf1:
                 best_mf1 = mf1
-                torch.save(model.module.state_dict() if train_cfg['DDP'] else model.state_dict(), save_dir / f"{model_cfg['NAME']}_{model_cfg['BACKBONE']}_{dataset_cfg['NAME']}.pth")
+                torch.save(model.module.state_dict() if train_cfg['DDP'] else model.state_dict(), save_dir / f"{cfg['MODEL']['NAME']}_{cfg['MODEL']['BACKBONE']}_{dataset_cfg['NAME']}.pth")
             print(f"Current mf1: {mf1} Best mf1: {best_mf1}")
 
     pbar.close()

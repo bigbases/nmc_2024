@@ -13,7 +13,7 @@ from nmc.augmentations import get_val_augmentation
 from nmc.metrics import Metrics, MultiLabelMetrics
 from nmc.utils.utils import setup_cudnn
 from typing import Tuple, Dict
-
+from episodic_utils import * 
 
 @torch.no_grad()
 def evaluate(model: torch.nn.Module, dataloader: torch.utils.data.DataLoader, device: str) -> Dict[str, float]:
@@ -51,16 +51,24 @@ def evaluate_multilabel(model: torch.nn.Module, dataloader: torch.utils.data.Dat
 def evaluate_epi(model, dataset, device, num_episodes=10):
     print('Evaluating...')
     model.eval()
-    metrics = Metrics(dataset.n_classes, device=device)
+    metrics = MultiLabelMetrics(dataset.n_classes, device=device)
 
     for _ in tqdm(range(num_episodes)):
         support_x, support_y, query_x, query_y = dataset.create_episode()
-
+        support_x, support_y = support_x.to(device), support_y.to(device)
         query_x = query_x.to(device)
-        query_y = query_y.to(device).argmax(dim=1)
+        query_y = query_y.to(device)
 
-        preds = model(query_x).softmax(dim=1).argmax(dim=1).to(torch.int64).flatten()
-        metrics.update_epi(preds, query_y)
+        support_pred = model(support_x)
+        query_pred = model(query_x)
+        num_classes = support_pred.size(1)  # 클래스의 수 (라벨의 차원)
+        prototypes = compute_prototypes_multi_label(support_pred, support_y, num_classes)
+        # prototypes shape : n_class , embedding_dim 
+        prototypes = prototypes.unsqueeze(0)  # (1, num_classes, embedding_dim)
+        similarities = dot_product_similarity(query_pred, prototypes)  # (batch_size, num_classes)
+        # thresholded_similarities = torch.where(similarities >= 0.5, torch.tensor(1.0), torch.tensor(0.0)) # << 혹시 라벨화가 필요할까봐 남겨놓음
+        
+        metrics.update(similarities, query_y)
 
     results = metrics.compute_metrics()
     
