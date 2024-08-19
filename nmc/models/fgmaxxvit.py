@@ -1,10 +1,11 @@
 from torch import Tensor
 from nmc.models.base import BaseModel
 from nmc.models.heads import MLPHead, MLPMultiHead
-import torch as nn
+import torch.nn as nn
+
 
 class FGMaxxVit(BaseModel):
-    def __init__(self, backbone: str = 'FGMaxxVit', num_classes: int = 19):
+    def __init__(self, backbone: str = 'FGMaxxVit', num_classes: int = 11):
         super().__init__(backbone, num_classes)
         self.head = MLPHead(self.backbone.config.head_hidden_size,num_classes)
         self.apply(self._init_weights)

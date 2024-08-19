@@ -51,6 +51,7 @@ def main(cfg, gpu, save_dir):
         sampler = None
 
     optimizer = get_optimizer(model, cfg['OPTIMIZER']['NAME'], cfg['OPTIMIZER']['LR'], cfg['OPTIMIZER']['WEIGHT_DECAY'])
+    criterion_cls = get_loss(cfg['LOSS_CLS']['NAME'])
     criterion = get_loss(cfg['LOSS']['NAME'])
     
     scheduler = get_scheduler(sched_cfg['NAME'], optimizer, num_episodes, sched_cfg['POWER'], num_episodes * sched_cfg['WARMUP'], sched_cfg['WARMUP_RATIO'])
@@ -74,7 +75,7 @@ def main(cfg, gpu, save_dir):
     print("Start Training ...")
     
     for episode_idx in range(num_episodes):
-        print(f"Episode index: {episode_idx}")
+        # print(f"Episode index: {episode_idx}")
         if train_cfg['DDP']:
             sampler.set_epoch(episode_idx)
 
@@ -86,7 +87,7 @@ def main(cfg, gpu, save_dir):
         query_x, query_y = query_x.to(device), query_y.to(device)
         
         with autocast(enabled=train_cfg['AMP']):
-            support_pred = model(support_x, support_y)
+            support_pred = model(support_x)
             #support_pred = [batch,n_class,embedding]
                 
             similarity_matrix = dot_similarity(support_pred)
@@ -99,7 +100,7 @@ def main(cfg, gpu, save_dir):
                 
                 if class_labels.sum() < 2:  # skip if less than 2 samples for this class
                     continue
-                class_loss = criterion(class_similarities, class_labels) #contrastive loss
+                class_loss = criterion_cls(class_similarities, class_labels) #contrastive loss
 
                 # 역전파
                 # 계산에 참여한 head만 자동으로 계산됨(디버깅함)
@@ -113,18 +114,48 @@ def main(cfg, gpu, save_dir):
         scheduler.step()
         torch.cuda.synchronize()
         
+        # START ---------------Query 유사도 계산을 위한 함수 ---------------------------
+        def compute_prototypes_multi_label(embeddings, labels, num_classes):
+            batch_size, n_classes, embedding_dim = embeddings.shape
+            prototypes = []
+            for c in range(num_classes):
+                class_mask = labels[:, c] > 0  # 특정 클래스 c에 속하는 샘플을 선택
+                if class_mask.sum() == 0:
+                    prototypes.append(torch.zeros(embedding_dim, device=embeddings.device)) # 없으면 0 vector
+                else:
+                    class_embeddings = embeddings[class_mask]
+                    prototype = class_embeddings[:,c,:].mean(dim=0) # class 별 Embedding의 평균 추출 
+                    prototypes.append(prototype)
+            return torch.stack(prototypes) # ( n_class , embedding )
+
+        def dot_product_similarity(query_embeddings, prototypes):
+            """
+            query_embeddings: (batch_size, num_classes, embedding_dim)
+            prototypes: (1, num_classes, embedding_dim)
+            """
+            similarities = torch.matmul(query_embeddings, prototypes.transpose(1, 2))  # (15, 11, 11)
+            similarities = similarities.diagonal(dim1=-2, dim2=-1)  # (15, 11) 대각 행렬만 추출하여 각 class 별 embedding의 유사도를 추출 
+            return similarities # ( batch size , n_class )
+        # END ---------------Query 유사도 계산을 위한 함수 ---------------------------
+            
         optimizer.zero_grad(set_to_none=True)         
         with autocast(enabled=train_cfg['AMP']):
+            support_pred = model(support_x)
             query_pred = model(query_x)
-            query_loss = criterion(query_pred, query_y)
-
+            num_classes = support_pred.size(1)  # 클래스의 수 (라벨의 차원)
+            prototypes = compute_prototypes_multi_label(support_pred, support_y, num_classes)
+            # prototypes shape : n_class , embedding_dim 
+            prototypes = prototypes.unsqueeze(0)  # (1, num_classes, embedding_dim)
+            similarities = dot_product_similarity(query_pred, prototypes)  # (batch_size, num_classes)
+            thresholded_similarities = torch.where(similarities >= 0.5, torch.tensor(1.0), torch.tensor(0.0)) # << 혹시 라벨화가 필요할까봐 남겨놓음
+            query_loss = criterion(similarities, query_y) # BCE loss 계산 
         scaler.scale(query_loss).backward()
         scaler.step(optimizer)
         scaler.update()
         scheduler.step()
         torch.cuda.synchronize()
 
-        train_loss = support_loss.item()
+        train_loss = class_loss.item()
         query_loss_item = query_loss.item()
         pbar.set_description(f"Episode: [{episode_idx+1}/{num_episodes}] Support Loss: {train_loss:.8f} Query Loss: {query_loss_item:.8f}")
         pbar.update(1)

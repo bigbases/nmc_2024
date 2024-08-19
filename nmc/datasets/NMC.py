@@ -140,14 +140,14 @@ class EpisodicNMCDataset(Dataset):
         
         chosen_classes = np.random.choice(list(self.unique_labels), self.n_way, replace=False)
         chosen_classes_set = set(chosen_classes)
-        print(f"chosen_classes_set: {chosen_classes_set}")
+        # print(f"chosen_classes_set: {chosen_classes_set}")
 
         # Find all indices where the label contains at least one of the chosen classes
         cls_indices = self.dataframe[self.dataframe['label'].apply(lambda labels: bool(set(labels) & chosen_classes_set))].index.tolist()
         
         # 클래스 조합으로 이루어진 DF 생성
         cls_indices_df = self.dataframe.iloc[cls_indices]
-        print(f"cls_indices (length: {len(cls_indices)}): {cls_indices}")
+        # print(f"cls_indices (length: {len(cls_indices)}): {cls_indices}")
         
         if len(cls_indices) < self.k_shot + self.q_query:
             raise ValueError("Not enough samples to create an episode with the chosen classes.")
@@ -161,11 +161,11 @@ class EpisodicNMCDataset(Dataset):
             support_indices += selected_indices  
         
         support_indices = list(set(support_indices))
-        print(f"support_indices: {support_indices}")
+        # print(f"support_indices: {support_indices}")
 
         # q_query만큼 클래스 조합으로 이루어진 DF에서 추출
         query_indices = np.random.choice(cls_indices, self.q_query, replace=False)
-        print(f"query_indices: {query_indices}")
+        # print(f"query_indices: {query_indices}")
         
         for idx in support_indices:
             if idx < 0 or idx >= len(self.dataframe):
