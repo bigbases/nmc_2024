@@ -21,7 +21,8 @@ from nmc.schedulers import get_scheduler
 from nmc.optimizers import get_optimizer
 from nmc.utils.utils import fix_seeds, setup_cudnn, cleanup_ddp, setup_ddp
 from val import evaluate_epi
-from episodic_utils import * 
+from nmc.utils.episodic_utils import * 
+
 def main(cfg, gpu, save_dir):
     start = time.time()
     best_mf1 = 0.0
