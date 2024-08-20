@@ -15,12 +15,13 @@ def dot_similarity(embeddings):
         return similarity
 
 # START ---------------Query 유사도 계산을 위한 함수 ---------------------------
-def compute_prototypes_multi_label(embeddings, labels, num_classes):
+def compute_prototypes_multi_label(embeddings, labels):
+    num_classes = labels.size(1)
     batch_size, n_classes, embedding_dim = embeddings.shape
     prototypes = []
     for c in range(num_classes):
         class_mask = labels[:, c] > 0  # 특정 클래스 c에 속하는 샘플을 선택
-        if class_mask.sum() == 0:
+        if class_mask.sum() == 0: 
             prototypes.append(torch.zeros(embedding_dim, device=embeddings.device)) # 없으면 0 vector
         else:
             class_embeddings = embeddings[class_mask]

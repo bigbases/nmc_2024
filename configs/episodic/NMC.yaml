@@ -1,4 +1,4 @@
-DEVICE: cuda
+DEVICE: cuda:1
 SAVE_DIR: 'output'
 MODEL:
   NAME: FGMaxxVit_Multi
@@ -8,7 +8,7 @@ MODEL:
 DATASET:
   NAME          : EpisodicNMCDataset                                          # dataset name to be trained with (camvid, cityscapes, ade20k)
   # ROOT          : '/data/nmc/processed_image'
-  ROOT          : '/data_2/national_AI_DD/nmc/processed_image'   
+  ROOT          : '/data/nmc/processed_image'   
 
   N_WAY: 3 #고유 클래스 개수
   K_SHOT: 3 
