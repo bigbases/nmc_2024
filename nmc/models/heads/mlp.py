@@ -22,7 +22,7 @@ class MLPHead(nn.Module):
         x = self.pre_logits(x)
         x = self.drop(x)
         logits = self.fc(x)
-        return logits
+        return logits 
 
 class MLPMultiHead(nn.Module):
     def __init__(self, num_features, num_embedding=768, pool_type='avg', drop_rate=0.0):

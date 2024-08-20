@@ -7,20 +7,25 @@ MODEL:
   UNFREEZE      : 'encoder.stages.3'                         # Freeze all layers without UNFREEZE ['encoder.stages.0', 'encoder.stages.1', 'encoder.stages.2', 'encoder.stages.3', None]
 DATASET:
   NAME          : EpisodicNMCDataset                                          # dataset name to be trained with (camvid, cityscapes, ade20k)
-  ROOT          : '/data/nmc/processed_image'
+  # ROOT          : '/data/nmc/processed_image'
+  ROOT          : '/data_2/national_AI_DD/nmc/processed_image'   
+
   N_WAY: 3 #고유 클래스 개수
   K_SHOT: 3 
   Q_QUERY: 15
 TRAIN:
   IMAGE_SIZE: [512, 512] 
-  NUM_EPISODES: 500  # Total number of episodes
+  NUM_EPISODES: 300  # Total number of episodes
   EVAL_INTERVAL: 10  # Evaluate after every 100 episodes
   AMP: false
   DDP: false
 
-LOSS:
+LOSS_CLS:
   NAME          : Contrastive          # loss function name (ohemce, ce, dice)
   CLS_WEIGHTS   : false            # use class weights in loss calculation
+
+LOSS:
+  NAME          : BCEWithLogitsLoss          # loss function name (ohemce, ce, dice)
 
 OPTIMIZER:
   NAME          : adamw           # optimizer name

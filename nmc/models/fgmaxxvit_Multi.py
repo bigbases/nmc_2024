@@ -6,7 +6,7 @@ from nmc.models.heads import MLPMultiHead
 
 
 class FGMaxxVit_Multi(BaseModel):
-    def __init__(self, backbone: str = 'FGMaxxVit', num_classes: int=10):
+    def __init__(self, backbone: str = 'FGMaxxVit_Multi_label', num_classes: int=10):
         super().__init__(backbone, num_classes)
         
         self.num_embedding= 256
@@ -16,7 +16,7 @@ class FGMaxxVit_Multi(BaseModel):
             
         self.apply(self._init_weights)
         
-    def forward(self,x: Tensor, task_type : Tensor):
+    def forward(self,x: Tensor):
         y = self.backbone(x)
         # y.shape = [batch,768]
         outputs = torch.stack([head(y) for head in self.head], dim=1)  

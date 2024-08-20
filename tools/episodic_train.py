@@ -21,7 +21,7 @@ from nmc.schedulers import get_scheduler
 from nmc.optimizers import get_optimizer
 from nmc.utils.utils import fix_seeds, setup_cudnn, cleanup_ddp, setup_ddp
 from val import evaluate_epi
-
+from episodic_utils import * 
 def main(cfg, gpu, save_dir):
     start = time.time()
     best_mf1 = 0.0
@@ -51,30 +51,19 @@ def main(cfg, gpu, save_dir):
         sampler = None
 
     optimizer = get_optimizer(model, cfg['OPTIMIZER']['NAME'], cfg['OPTIMIZER']['LR'], cfg['OPTIMIZER']['WEIGHT_DECAY'])
+    criterion_cls = get_loss(cfg['LOSS_CLS']['NAME'])
     criterion = get_loss(cfg['LOSS']['NAME'])
     
     scheduler = get_scheduler(sched_cfg['NAME'], optimizer, num_episodes, sched_cfg['POWER'], num_episodes * sched_cfg['WARMUP'], sched_cfg['WARMUP_RATIO'])
     scaler = GradScaler(enabled=train_cfg['AMP'])
-    
-    def dot_similarity(embeddings):
-        #embeddings = [batch,n_class,embedding]
-        embeddings = F.normalize(embeddings, p=2, dim=-1)
-        batch_size, n_class, embedding_dim = embeddings.shape
-        similarity = torch.zeros(n_class, batch_size, batch_size, device=embeddings.device)
-        
-        for c in range(n_class):
-            class_embeddings = embeddings[:, c, :]  # [batch, embedding_dim]
-            similarity[c] = torch.mm(class_embeddings, class_embeddings.t())
-        
-        return similarity
-        
+
     model.train()
     pbar = tqdm(total=num_episodes, desc=f"Episode: [{0}/{num_episodes}] Loss: {0:.8f}")
     
     print("Start Training ...")
     
     for episode_idx in range(num_episodes):
-        print(f"Episode index: {episode_idx}")
+        # print(f"Episode index: {episode_idx}")
         if train_cfg['DDP']:
             sampler.set_epoch(episode_idx)
 
@@ -86,7 +75,7 @@ def main(cfg, gpu, save_dir):
         query_x, query_y = query_x.to(device), query_y.to(device)
         
         with autocast(enabled=train_cfg['AMP']):
-            support_pred = model(support_x, support_y)
+            support_pred = model(support_x)
             #support_pred = [batch,n_class,embedding]
                 
             similarity_matrix = dot_similarity(support_pred)
@@ -99,7 +88,7 @@ def main(cfg, gpu, save_dir):
                 
                 if class_labels.sum() < 2:  # skip if less than 2 samples for this class
                     continue
-                class_loss = criterion(class_similarities, class_labels) #contrastive loss
+                class_loss = criterion_cls(class_similarities, class_labels) #contrastive loss
 
                 # 역전파
                 # 계산에 참여한 head만 자동으로 계산됨(디버깅함)
@@ -113,18 +102,25 @@ def main(cfg, gpu, save_dir):
         scheduler.step()
         torch.cuda.synchronize()
         
+        
         optimizer.zero_grad(set_to_none=True)         
         with autocast(enabled=train_cfg['AMP']):
+            support_pred = model(support_x)
             query_pred = model(query_x)
-            query_loss = criterion(query_pred, query_y)
-
+            num_classes = support_pred.size(1)  # 클래스의 수 (라벨의 차원)
+            prototypes = compute_prototypes_multi_label(support_pred, support_y, num_classes)
+            # prototypes shape : n_class , embedding_dim 
+            prototypes = prototypes.unsqueeze(0)  # (1, num_classes, embedding_dim)
+            similarities = dot_product_similarity(query_pred, prototypes)  # (batch_size, num_classes)
+            thresholded_similarities = torch.where(similarities >= 0.5, torch.tensor(1.0), torch.tensor(0.0)) # << 혹시 라벨화가 필요할까봐 남겨놓음
+            query_loss = criterion(similarities, query_y) # BCE loss 계산 
         scaler.scale(query_loss).backward()
         scaler.step(optimizer)
         scaler.update()
         scheduler.step()
         torch.cuda.synchronize()
 
-        train_loss = support_loss.item()
+        train_loss = class_loss.item()
         query_loss_item = query_loss.item()
         pbar.set_description(f"Episode: [{episode_idx+1}/{num_episodes}] Support Loss: {train_loss:.8f} Query Loss: {query_loss_item:.8f}")
         pbar.update(1)
@@ -147,7 +143,7 @@ def main(cfg, gpu, save_dir):
 
             if mf1 > best_mf1:
                 best_mf1 = mf1
-                torch.save(model.module.state_dict() if train_cfg['DDP'] else model.state_dict(), save_dir / f"{model_cfg['NAME']}_{model_cfg['BACKBONE']}_{dataset_cfg['NAME']}.pth")
+                torch.save(model.module.state_dict() if train_cfg['DDP'] else model.state_dict(), save_dir / f"{cfg['MODEL']['NAME']}_{cfg['MODEL']['BACKBONE']}_{dataset_cfg['NAME']}.pth")
             print(f"Current mf1: {mf1} Best mf1: {best_mf1}")
 
     pbar.close()
