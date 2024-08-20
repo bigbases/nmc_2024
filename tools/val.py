@@ -13,7 +13,7 @@ from nmc.augmentations import get_val_augmentation
 from nmc.metrics import Metrics, MultiLabelMetrics
 from nmc.utils.utils import setup_cudnn
 from typing import Tuple, Dict
-from episodic_utils import * 
+from nmc.utils.episodic_utils import * 
 
 @torch.no_grad()
 def evaluate(model: torch.nn.Module, dataloader: torch.utils.data.DataLoader, device: str) -> Dict[str, float]:
@@ -62,7 +62,7 @@ def evaluate_epi(model, dataset, device, num_episodes=10):
         support_pred = model(support_x)
         query_pred = model(query_x)
         num_classes = support_pred.size(1)  # 클래스의 수 (라벨의 차원)
-        prototypes = compute_prototypes_multi_label(support_pred, support_y, num_classes)
+        prototypes = compute_prototypes_multi_label(support_pred, support_y)
         # prototypes shape : n_class , embedding_dim 
         prototypes = prototypes.unsqueeze(0)  # (1, num_classes, embedding_dim)
         similarities = dot_product_similarity(query_pred, prototypes)  # (batch_size, num_classes)

@@ -106,14 +106,12 @@ def main(cfg, gpu, save_dir):
         
         optimizer.zero_grad(set_to_none=True)         
         with autocast(enabled=train_cfg['AMP']):
-            support_pred = model(support_x)
             query_pred = model(query_x)
-            num_classes = support_pred.size(1)  # 클래스의 수 (라벨의 차원)
-            prototypes = compute_prototypes_multi_label(support_pred, support_y, num_classes)
+            prototypes = compute_prototypes_multi_label(support_pred, support_y)
             # prototypes shape : n_class , embedding_dim 
             prototypes = prototypes.unsqueeze(0)  # (1, num_classes, embedding_dim)
             similarities = dot_product_similarity(query_pred, prototypes)  # (batch_size, num_classes)
-            thresholded_similarities = torch.where(similarities >= 0.5, torch.tensor(1.0), torch.tensor(0.0)) # << 혹시 라벨화가 필요할까봐 남겨놓음
+            #thresholded_similarities = torch.where(similarities >= 0.5, torch.tensor(1.0), torch.tensor(0.0)) # << 혹시 라벨화가 필요할까봐 남겨놓음
             query_loss = criterion(similarities, query_y) # BCE loss 계산 
         scaler.scale(query_loss).backward()
         scaler.step(optimizer)
