@@ -21,15 +21,19 @@ def compute_prototypes_multi_label(embeddings, labels):
     prototypes = []
     for c in range(num_classes):
         positive_mask = labels[:, c] > 0  # 특정 클래스 c에 속하는 샘플을 선택
-        if positive_mask.sum() == 0: 
-            prototypes.append(torch.tensor([torch.zeros(embedding_dim, device=embeddings.device),torch.zeros(embedding_dim, device=embeddings.device)])) # 없으면 0 vector
+        if positive_mask.sum() == 0:
+            dumy = torch.zeros(embedding_dim, device=embeddings.device)
+            prototypes.append(torch.stack([dumy,dumy],dim=1)) # 없으면 0 vector
         else:
             negative_mask = labels[:, c] < 1
             positive_embeddings = embeddings[positive_mask]
             negative_embeddings = embeddings[negative_mask]
             positive_prototype = positive_embeddings[:,c,:].mean(dim=0) # class 별 Embedding의 평균 추출
-            negative_prototype = negative_embeddings[:,c,:].mean(dim=0) 
-            prototypes.append(torch.tensor([positive_prototype,negative_prototype]))
+            negative_prototype = negative_embeddings[:,c,:].mean(dim=0)
+            
+            combined_prototypes = torch.stack([positive_prototype, negative_prototype], dim=1)
+   
+            prototypes.append(combined_prototypes)
     return torch.stack(prototypes) # ( n_class , embedding )
 
 def dot_product_similarity(query_embeddings, prototypes):
