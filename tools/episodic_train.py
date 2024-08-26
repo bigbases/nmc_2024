@@ -109,11 +109,17 @@ def main(cfg, gpu, save_dir):
             query_pred = model(query_x)
             prototypes = compute_prototypes_multi_label(support_pred, support_y)
             # prototypes shape : n_class , embedding_dim 
-            prototypes = prototypes.unsqueeze(0)  # (1, num_classes, embedding_dim)
-            similarities = dot_product_similarity(query_pred, prototypes)  # (batch_size, num_classes)
+            proto_sim = dot_product_similarity(query_pred,prototypes)  # (batch_size, num_classes)
             #thresholded_similarities = torch.where(similarities >= 0.5, torch.tensor(1.0), torch.tensor(0.0)) # << 혹시 라벨화가 필요할까봐 남겨놓음
-            query_loss = criterion(similarities, query_y) # BCE loss 계산 
-        scaler.scale(query_loss).backward()
+            query_loss = criterion(similarities, query_y) # BCE loss 계산
+            for c in range(proto_sim.size(1)):
+                class_proto_similarities = proto_sim[:,c,:]
+                class_proto_labels = query_y[:,c]
+                if class_proto_labels.sum() <1:
+                    continue
+                class_proto_loss = criterion_cls(class_proto_similarities,class_proto_labels,query=True)
+                scaler.scale(class_proto_loss).backward(retain_graph=True)
+                
         scaler.step(optimizer)
         scaler.update()
         scheduler.step()

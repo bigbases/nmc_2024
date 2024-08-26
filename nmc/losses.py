@@ -6,33 +6,35 @@ from typing import Union
 class Contrastive(nn.Module):
     def __init__(self) -> None:
         super().__init__()
-    def forward(self,similarities, labels, temperature=0.07, eps=1e-8):
+    def forward(self,similarities, labels, query = False, temperature=0.07, eps=1e-8):
         # similarities : [batch,batch] 특정 class embedding의 similarity matrix
         # labels : [batch] 특정 class embedding의 class 정보
         
         # temperature(T) scaling
         similarities = similarities / temperature
-
-        # class mask : [batch,batch]
-        labels = labels.contiguous().view(-1, 1)
-        mask = torch.eq(labels, labels.T).float()
-
-        # Exclude self-similarity
-        logits_mask = torch.scatter(
-            torch.ones_like(mask),
-            1,
-            torch.arange(mask.shape[0]).view(-1, 1).to(mask.device),
-            0
-        )
-        
         # exp
         exp_similarities = torch.exp(similarities) 
         
-        pos_sim = (mask * exp_similarities * logits_mask)
-        pos_neg_sim = (logits_mask * exp_similarities).sum(1, keepdim=True)
+        if query == False:
+            # class mask : [batch,batch]
+            labels = labels.contiguous().view(-1, 1)          
+            mask = torch.eq(labels, labels.T).float()
+
+            # Exclude self-similarity
+            logits_mask = torch.scatter(
+                torch.ones_like(mask),
+                1,
+                torch.arange(mask.shape[0]).view(-1, 1).to(mask.device),
+                0
+            )
+            
+            pos_sim = (mask * exp_similarities * logits_mask)
+            pos_neg_sim = (logits_mask * exp_similarities).sum(1, keepdim=True)
+        else:
+            pos_sim = exp_similarities[torch.arange(exp_similarities.shape[0]),(1-labels).long()]
+            pos_neg_sim = exp_similarities.sum(dim=1)
         
         loss_matrix = -torch.log((pos_sim + eps)/(pos_neg_sim+ eps))
-        
         fit_mask = torch.isfinite(loss_matrix)
         fit_matrix = torch.where(fit_mask, loss_matrix, torch.zeros_like(loss_matrix))
         total_loss = fit_matrix.sum()
