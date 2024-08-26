@@ -107,11 +107,21 @@ def main(cfg, gpu, save_dir):
         optimizer.zero_grad(set_to_none=True)         
         with autocast(enabled=train_cfg['AMP']):
             query_pred = model(query_x)
-            prototypes = compute_prototypes_multi_label(support_pred, support_y)
+            prototypes = compute_prototypes_multi_label(support_pred, support_y).detach()
+            
+            # global prototypes
+            if episode_idx == int(train_cfg['NUM_EPISODES'])/2:
+                global_prototypes = torch.zeros_like(prototypes).detach()
+                gp_cnt =0
+            if episode_idx >= int(train_cfg['NUM_EPISODES'])/2:
+                proto_classes = torch.nonzero(support_y.sum(dim=0)).squeeze()
+                for i in proto_classes:
+                    global_prototypes[i] = ((global_prototypes[i]*gp_cnt + prototypes[i])/ (gp_cnt+1)).detach()
+                gp_cnt+=1
+            
             # prototypes shape : n_class , embedding_dim 
             proto_sim = dot_product_similarity(query_pred,prototypes)  # (batch_size, num_classes)
-            #thresholded_similarities = torch.where(similarities >= 0.5, torch.tensor(1.0), torch.tensor(0.0)) # << 혹시 라벨화가 필요할까봐 남겨놓음
-            query_loss = criterion(similarities, query_y) # BCE loss 계산
+
             for c in range(proto_sim.size(1)):
                 class_proto_similarities = proto_sim[:,c,:]
                 class_proto_labels = query_y[:,c]
@@ -126,30 +136,31 @@ def main(cfg, gpu, save_dir):
         torch.cuda.synchronize()
 
         train_loss = class_loss.item()
-        query_loss_item = query_loss.item()
+        query_loss_item = class_proto_loss.item()
         pbar.set_description(f"Episode: [{episode_idx+1}/{num_episodes}] Support Loss: {train_loss:.8f} Query Loss: {query_loss_item:.8f}")
         pbar.update(1)
 
         if (episode_idx + 1) % train_cfg['EVAL_INTERVAL'] == 0 or (episode_idx + 1) == num_episodes:
-            results = evaluate_epi(model, episodic_dataset, device, num_episodes=10)
-            mf1 = results['avg_f1']
-            
-            print(f"Accuracy: {results['accuracy']:.2f}%")
-            print(f"Average Precision: {results['avg_precision']:.2f}%")
-            print(f"Average Recall: {results['avg_recall']:.2f}%")
-            print(f"Average F1: {results['avg_f1']:.2f}%")
+            if (episode_idx + 1) >= int(train_cfg['NUM_EPISODES'])/2:
+                results = evaluate_epi(model, episodic_dataset, global_prototypes, device, num_episodes=10)
+                mf1 = results['avg_f1']
+                
+                print(f"Accuracy: {results['accuracy']:.2f}%")
+                print(f"Average Precision: {results['avg_precision']:.2f}%")
+                print(f"Average Recall: {results['avg_recall']:.2f}%")
+                print(f"Average F1: {results['avg_f1']:.2f}%")
 
-            print("\nPer-class metrics:")
-            for class_idx, metrics in results['class_metrics']['precision'].items():
-                print(f"Class {class_idx}:")
-                print(f"  Precision: {results['class_metrics']['precision'][class_idx]:.2f}%")
-                print(f"  Recall: {results['class_metrics']['recall'][class_idx]:.2f}%")
-                print(f"  F1: {results['class_metrics']['f1'][class_idx]:.2f}%")
+                print("\nPer-class metrics:")
+                for class_idx, metrics in results['class_metrics']['precision'].items():
+                    print(f"Class {class_idx}:")
+                    print(f"  Precision: {results['class_metrics']['precision'][class_idx]:.2f}%")
+                    print(f"  Recall: {results['class_metrics']['recall'][class_idx]:.2f}%")
+                    print(f"  F1: {results['class_metrics']['f1'][class_idx]:.2f}%")
 
-            if mf1 > best_mf1:
-                best_mf1 = mf1
-                torch.save(model.module.state_dict() if train_cfg['DDP'] else model.state_dict(), save_dir / f"{cfg['MODEL']['NAME']}_{cfg['MODEL']['BACKBONE']}_{dataset_cfg['NAME']}.pth")
-            print(f"Current mf1: {mf1} Best mf1: {best_mf1}")
+                if mf1 > best_mf1:
+                    best_mf1 = mf1
+                    torch.save(model.module.state_dict() if train_cfg['DDP'] else model.state_dict(), save_dir / f"{cfg['MODEL']['NAME']}_{cfg['MODEL']['BACKBONE']}_{dataset_cfg['NAME']}.pth")
+                print(f"Current mf1: {mf1} Best mf1: {best_mf1}")
 
     pbar.close()
     end = time.gmtime(time.time() - start)
