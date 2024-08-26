@@ -141,7 +141,7 @@ def main(cfg, gpu, save_dir):
         pbar.update(1)
 
         if (episode_idx + 1) % train_cfg['EVAL_INTERVAL'] == 0 or (episode_idx + 1) == num_episodes:
-            if (episode_idx + 1) >= int(train_cfg['NUM_EPISODES'])/2:
+            if (episode_idx) >= int(train_cfg['NUM_EPISODES'])/2:
                 results = evaluate_epi(model, episodic_dataset, global_prototypes, device, num_episodes=10)
                 mf1 = results['avg_f1']
                 
