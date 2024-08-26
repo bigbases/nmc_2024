@@ -13,7 +13,7 @@ class Contrastive(nn.Module):
         # temperature(T) scaling
         similarities = similarities / temperature
         # exp
-        exp_similarities = torch.exp(similarities) 
+        exp_similarities = torch.exp(similarities)
         
         if query == False:
             # class mask : [batch,batch]
@@ -27,7 +27,6 @@ class Contrastive(nn.Module):
                 torch.arange(mask.shape[0]).view(-1, 1).to(mask.device),
                 0
             )
-            
             pos_sim = (mask * exp_similarities * logits_mask)
             pos_neg_sim = (logits_mask * exp_similarities).sum(1, keepdim=True)
         else:

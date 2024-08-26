@@ -48,27 +48,21 @@ def evaluate_multilabel(model: torch.nn.Module, dataloader: torch.utils.data.Dat
     return results
 
 @torch.no_grad()
-def evaluate_epi(model, dataset, device, num_episodes=10):
+def evaluate_epi(model, dataset, global_prototypes, device, num_episodes=10):
     print('Evaluating...')
+    #global_prototypes : n_class, pn, embeddings
     model.eval()
     metrics = MultiLabelMetrics(dataset.n_classes, device=device)
 
     for _ in tqdm(range(num_episodes)):
         support_x, support_y, query_x, query_y = dataset.create_episode()
-        support_x, support_y = support_x.to(device), support_y.to(device)
         query_x = query_x.to(device)
         query_y = query_y.to(device)
-
-        support_pred = model(support_x)
         query_pred = model(query_x)
-        num_classes = support_pred.size(1)  # 클래스의 수 (라벨의 차원)
-        prototypes = compute_prototypes_multi_label(support_pred, support_y)
-        # prototypes shape : n_class , embedding_dim 
-        prototypes = prototypes.unsqueeze(0)  # (1, num_classes, embedding_dim)
-        similarities = dot_product_similarity(query_pred, prototypes)  # (batch_size, num_classes)
-        # thresholded_similarities = torch.where(similarities >= 0.5, torch.tensor(1.0), torch.tensor(0.0)) # << 혹시 라벨화가 필요할까봐 남겨놓음
+        proto_sim = dot_product_similarity(query_pred,global_prototypes)
+        result = (proto_sim[:, :, 0] >= proto_sim[:, :, 1]).long()
         
-        metrics.update(similarities, query_y)
+        metrics.update(result, query_y)
 
     results = metrics.compute_metrics()
     

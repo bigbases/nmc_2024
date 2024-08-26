@@ -4,7 +4,8 @@ from torch.nn import functional as F
 
 def dot_similarity(embeddings):
         #embeddings = [batch,n_class,embedding]
-        batch_size, n_class, _ = embeddings.shape
+        batch_size, n_class, embedding_dim = embeddings.shape
+        embeddings = embeddings.permute(1, 0, 2)
         # Calculate cosine similarity
         similarity = F.cosine_similarity(embeddings.unsqueeze(2), embeddings.unsqueeze(1), dim=-1)
     
