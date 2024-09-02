@@ -3,6 +3,19 @@ from torch import nn, Tensor
 from torch.nn import functional as F
 from typing import Union
 
+class NegProtoSim(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+    def forward(class_embeddings, support_y, negative_prototypes, temperature=0.07):
+        # neg== 0인 샘플
+        neg_indices = (support_y == 0).nonzero().squeeze()
+        neg_embeddings = class_embeddings[neg_indices]
+        similarities = F.cosine_similarity(neg_embeddings, negative_prototypes.unsqueeze(0), dim=1)
+        scaled_similarities = similarities / temperature
+        
+        neg_log_likelihood = -torch.log_softmax(-scaled_similarities, dim=0)
+        return neg_log_likelihood.mean()
+
 class Contrastive(nn.Module):
     def __init__(self) -> None:
         super().__init__()
@@ -106,7 +119,7 @@ class Dice(nn.Module):
         return self._forward(preds, targets)
 
 
-__all__ = ['CrossEntropy', 'OhemCrossEntropy', 'Dice', 'Contrastive']
+__all__ = ['CrossEntropy', 'OhemCrossEntropy', 'Dice', 'Contrastive','NegProtoSim']
 
 
 def get_loss(loss_fn_name: str = 'CrossEntropy', cls_weights: Union[Tensor, None] = None):
@@ -124,6 +137,8 @@ def get_loss(loss_fn_name: str = 'CrossEntropy', cls_weights: Union[Tensor, None
         return nn.L1Loss()
     elif loss_fn_name == 'Contrastive':
         return Contrastive()
+    elif loss_fn_name == 'NegProtoSim':
+        return NegProtoSim()
 
 
 if __name__ == '__main__':

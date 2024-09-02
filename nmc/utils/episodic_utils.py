@@ -45,4 +45,21 @@ def dot_product_similarity(query_embeddings, prototypes):
     
     return similarities
     
+def calculate_negative_prototypes(support_pred, support_y):
+    batch_size, n_class, embedding_dim = support_pred.shape
+    
+    negative_prototypes = []
+    
+    for i in range(n_class):
+        zero_indices = (support_y[:, i] == 0).nonzero().squeeze()
+        
+        if zero_indices.dim() > 0: 
+            negative_prototypes.append(support_pred[:, i, :][zero_indices])
+        
+    if negative_prototypes:
+        negative_prototypes = torch.cat(negative_prototypes, dim=0)
+        return negative_prototypes.mean(dim=0)
+        
+    else:
+        return None
     
