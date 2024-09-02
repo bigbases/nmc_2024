@@ -6,7 +6,7 @@ from typing import Union
 class NegProtoSim(nn.Module):
     def __init__(self) -> None:
         super().__init__()
-    def forward(class_embeddings, support_y, negative_prototypes, temperature=0.07):
+    def forward(self, class_embeddings, support_y, negative_prototypes, temperature=0.07):
         # neg== 0인 샘플
         neg_indices = (support_y == 0).nonzero().squeeze()
         neg_embeddings = class_embeddings[neg_indices]
@@ -123,7 +123,7 @@ __all__ = ['CrossEntropy', 'OhemCrossEntropy', 'Dice', 'Contrastive','NegProtoSi
 
 
 def get_loss(loss_fn_name: str = 'CrossEntropy', cls_weights: Union[Tensor, None] = None):
-    available_loss_functions = ['CrossEntropy', 'BCEWithLogitsLoss', 'MSELoss', 'L1Loss', 'Contrastive']
+    available_loss_functions = ['CrossEntropy', 'BCEWithLogitsLoss', 'MSELoss', 'L1Loss', 'Contrastive','NegProtoSim']
     
     assert loss_fn_name in available_loss_functions, f"Unavailable loss function name >> {loss_fn_name}.\nAvailable loss functions: {available_loss_functions}"
     
