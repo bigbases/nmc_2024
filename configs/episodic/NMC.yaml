@@ -13,6 +13,9 @@ DATASET:
   N_WAY: 5 #고유 클래스 개수
   K_SHOT: 3 
   Q_QUERY: 15
+  MINOR_CLS: [4,5]
+  SPLIT_RATIO: 0.75
+  
 TRAIN:
   IMAGE_SIZE: [512, 512] 
   NUM_EPISODES: 300  # Total number of episodes
