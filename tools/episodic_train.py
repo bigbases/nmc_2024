@@ -96,7 +96,7 @@ def main(cfg, gpu, save_dir):
                 if class_labels.sum() >= 2:  # skip if less than 2 samples for this class
                     class_loss = criterion_cls(class_similarities, class_labels) #contrastive loss
                     total_loss += class_loss
-                if negative_prototype:
+                if negative_prototype is not None:
                     neg_proto_loss = criterion_proto(support_pred[:,c,:],support_y[:,c],negative_prototype)
                     total_loss += neg_proto_loss
                 
