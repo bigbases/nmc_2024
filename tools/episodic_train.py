@@ -54,6 +54,7 @@ def main(cfg, gpu, save_dir):
     optimizer = get_optimizer(model, cfg['OPTIMIZER']['NAME'], cfg['OPTIMIZER']['LR'], cfg['OPTIMIZER']['WEIGHT_DECAY'])
     criterion_cls = get_loss(cfg['LOSS_CLS']['NAME'])
     criterion = get_loss(cfg['LOSS']['NAME'])
+    criterion_proto = get_loss('NegProtoSim')
     
     scheduler = get_scheduler(sched_cfg['NAME'], optimizer, num_episodes, sched_cfg['POWER'], num_episodes * sched_cfg['WARMUP'], sched_cfg['WARMUP_RATIO'])
     scaler = GradScaler(enabled=train_cfg['AMP'])
@@ -83,19 +84,28 @@ def main(cfg, gpu, save_dir):
             #dot_similarity = [n_class,batch,batch]
             support_y_t = support_y.t()
             
+            #각 클래스별 loss 생성이 끝난 후 negative prototype을 만들어 각 임베딩별 loss 생성
+            negative_prototype = calculate_negative_prototypes(support_pred,support_y)
+
+            
             for c in range(similarity_matrix.size(0)):
+                total_loss =0
                 class_similarities = similarity_matrix[c]
                 class_labels = support_y_t[c]
                 
-                if class_labels.sum() < 2:  # skip if less than 2 samples for this class
-                    continue
-                class_loss = criterion_cls(class_similarities, class_labels) #contrastive loss
-
+                if class_labels.sum() >= 2:  # skip if less than 2 samples for this class
+                    class_loss = criterion_cls(class_similarities, class_labels) #contrastive loss
+                    total_loss += class_loss
+                if negative_prototype:
+                    neg_proto_loss = criterion_proto(support_pred[:,c,:],support_y[:,c],negative_prototype)
+                    total_loss += neg_proto_loss
+                
                 # 역전파
                 # 계산에 참여한 head만 자동으로 계산됨(디버깅함)
                 # retain_traph를 통해 batch단위 loss 역전파동안 계산그래프 유지
-                scaler.scale(class_loss).backward(retain_graph=True)
-                
+                scaler.scale(total_loss).backward(retain_graph=True)
+            
+            
                 
         # opt step은 한번만
         scaler.step(optimizer)
@@ -109,7 +119,8 @@ def main(cfg, gpu, save_dir):
             query_pred = model(query_x)
             prototypes = compute_prototypes_multi_label(support_pred, support_y).detach()
             
-            # global prototypes
+            # global prototypes 
+            # 여기는 eval에서 삭제예정
             if episode_idx == int(train_cfg['NUM_EPISODES'])/2:
                 global_prototypes = torch.zeros_like(prototypes).detach()
                 gp_cnt =0
