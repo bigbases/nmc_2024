@@ -13,7 +13,9 @@ from nmc.augmentations import get_val_augmentation
 from nmc.metrics import Metrics, MultiLabelMetrics
 from nmc.utils.utils import setup_cudnn
 from typing import Tuple, Dict
+from nmc.losses import get_loss
 from nmc.utils.episodic_utils import * 
+import copy
 
 @torch.no_grad()
 def evaluate(model: torch.nn.Module, dataloader: torch.utils.data.DataLoader, device: str) -> Dict[str, float]:
@@ -47,26 +49,68 @@ def evaluate_multilabel(model: torch.nn.Module, dataloader: torch.utils.data.Dat
     
     return results
 
+def test_support_train(model, support_x, support_y, negative_prototype, device):
+    temp_model = copy.deepcopy(model).to(device)
+    temp_model.train()
+    
+    optimizer = torch.optim.AdamW(temp_model.parameters(), lr=0.001, weight_decay=0.01)
+    criterion_cls = get_loss('Contrastive')
+    criterion_proto = get_loss('NegProtoSim')
+    
+    scaler = torch.cuda.amp.GradScaler()
+    
+    with torch.cuda.amp.autocast():
+        support_pred = temp_model(support_x)
+        similarity_matrix = dot_similarity(support_pred)
+        support_y_t = support_y.t()
+        
+        optimizer.zero_grad()
+        for c in range(similarity_matrix.size(0)):
+            total_loss = 0
+            class_similarities = similarity_matrix[c]
+            class_labels = support_y_t[c]
+            
+            if class_labels.sum() >= 2:
+                class_loss = criterion_cls(class_similarities, class_labels)
+                total_loss += class_loss
+            if negative_prototype is not None:
+                neg_proto_loss = criterion_proto(support_pred[:,c,:], support_y[:,c], negative_prototype)
+                total_loss += neg_proto_loss
+            
+            scaler.scale(total_loss).backward(retain_graph=(c < similarity_matrix.size(0) - 1))
+    
+    scaler.step(optimizer)
+    scaler.update()
+    
+    return support_pred, temp_model
+
 @torch.no_grad()
-def evaluate_epi(model, dataset, global_prototypes, device, num_episodes=10):
+def evaluate_epi(model, dataset, negative_prototype, device, num_episodes=10):
     print('Evaluating...')
     #global_prototypes : n_class, pn, embeddings
     model.eval()
     metrics = MultiLabelMetrics(dataset.n_classes, device=device)
 
-    for _ in tqdm(range(num_episodes)):
-        support_x, support_y, query_x, query_y = dataset.create_episode()
-        query_x = query_x.to(device)
-        query_y = query_y.to(device)
-        query_pred = model(query_x)
-        proto_sim = dot_product_similarity(query_pred,global_prototypes)
-        result = (proto_sim[:, :, 0] >= proto_sim[:, :, 1]).long()
-        
-        metrics.update(result, query_y)
-
-    results = metrics.compute_metrics()
+    # support train
+    support_x, support_y, query_x, query_y = dataset.create_episode()
+    support_x, support_y = support_x.to(device), support_y.to(device)
+    with torch.enable_grad():
+        support_pred, temp_model = test_support_train(model,support_x, support_y, negative_prototype, device)
+    temp_model.eval()
+    query_x = query_x.to(device)
+    query_y = query_y.to(device)
     
-    return results
+    query_pred = temp_model(query_x)
+    prototypes = compute_prototypes_multi_label(support_pred, support_y).detach()
+    proto_sim = dot_product_similarity(query_pred,prototypes)  # (batch_size, num_classes)
+    result = (proto_sim[:, :, 0] >= proto_sim[:, :, 1]).long()    
+    metrics.update(result, query_y)
+    active_support = torch.where(support_y.sum(dim=0) > 0)[0]
+    active_classes = torch.where(query_y.sum(dim=0) > 0)[0]
+    print('supprot:',active_support)
+    print('query:',active_classes)
+    results = metrics.compute_metrics(active_classes)
+    return results, active_classes
 
 
 @torch.no_grad()
