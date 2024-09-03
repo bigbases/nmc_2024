@@ -309,7 +309,7 @@ class EpisodicDataSubset(Dataset):
         chosen_classes = np.random.choice(self.unique_label, self.n_way, replace=False)
         chosen_classes_set = set(chosen_classes)
         
-        print(f'chosen_Cls: {chosen_classes_set}')
+        #print(f'chosen_Cls: {chosen_classes_set}')
 
         # Find all indices where the label contains at least one of the chosen classes
         cls_indices = self.dataframe[self.dataframe['label'].apply(lambda labels: bool(set(labels) & chosen_classes_set))].index.tolist()
