@@ -53,18 +53,18 @@ def main(cfg, gpu, save_dir):
 
     optimizer = get_optimizer(model, cfg['OPTIMIZER']['NAME'], cfg['OPTIMIZER']['LR'], cfg['OPTIMIZER']['WEIGHT_DECAY'])
     criterion_cls = get_loss(cfg['LOSS_CLS']['NAME'])
-    criterion = get_loss(cfg['LOSS']['NAME'])
     criterion_proto = get_loss('NegProtoSim')
     
     scheduler = get_scheduler(sched_cfg['NAME'], optimizer, num_episodes, sched_cfg['POWER'], num_episodes * sched_cfg['WARMUP'], sched_cfg['WARMUP_RATIO'])
     scaler = GradScaler(enabled=train_cfg['AMP'])
 
-    model.train()
+   
     pbar = tqdm(total=num_episodes, desc=f"Episode: [{0}/{num_episodes}] Loss: {0:.8f}")
     
     print("Start Training ...")
     
     for episode_idx in range(num_episodes):
+        model.train()
         # print(f"Episode index: {episode_idx}")
         if train_cfg['DDP']:
             sampler.set_epoch(episode_idx)
@@ -85,7 +85,7 @@ def main(cfg, gpu, save_dir):
             support_y_t = support_y.t()
             
             #각 클래스별 loss 생성이 끝난 후 negative prototype을 만들어 각 임베딩별 loss 생성
-            negative_prototype = calculate_negative_prototypes(support_pred,support_y)
+            negative_prototype = calculate_negative_prototypes(support_pred,support_y).detach()
 
             
             for c in range(similarity_matrix.size(0)):
@@ -119,17 +119,6 @@ def main(cfg, gpu, save_dir):
             query_pred = model(query_x)
             prototypes = compute_prototypes_multi_label(support_pred, support_y).detach()
             
-            # global prototypes 
-            # 여기는 eval에서 삭제예정
-            if episode_idx == int(train_cfg['NUM_EPISODES'])/2:
-                global_prototypes = torch.zeros_like(prototypes).detach()
-                gp_cnt =0
-            if episode_idx >= int(train_cfg['NUM_EPISODES'])/2:
-                proto_classes = torch.nonzero(support_y.sum(dim=0)).squeeze()
-                for i in proto_classes:
-                    global_prototypes[i] = ((global_prototypes[i]*gp_cnt + prototypes[i])/ (gp_cnt+1)).detach()
-                gp_cnt+=1
-            
             # prototypes shape : n_class , embedding_dim 
             proto_sim = dot_product_similarity(query_pred,prototypes)  # (batch_size, num_classes)
 
@@ -152,26 +141,26 @@ def main(cfg, gpu, save_dir):
         pbar.update(1)
 
         if (episode_idx + 1) % train_cfg['EVAL_INTERVAL'] == 0 or (episode_idx + 1) == num_episodes:
-            if (episode_idx) >= int(train_cfg['NUM_EPISODES'])/2:
-                results = evaluate_epi(model, episodic_dataset_test, global_prototypes, device, num_episodes=10)
-                mf1 = results['avg_f1']
-                
-                print(f"Accuracy: {results['accuracy']:.2f}%")
-                print(f"Average Precision: {results['avg_precision']:.2f}%")
-                print(f"Average Recall: {results['avg_recall']:.2f}%")
-                print(f"Average F1: {results['avg_f1']:.2f}%")
+            results,active_classes = evaluate_epi(model, episodic_dataset_test, negative_prototype, device, num_episodes=10)
+            mf1 = results['avg_f1']
+            
+            print(f"Accuracy: {results['accuracy']:.2f}%")
+            print(f"Average Precision: {results['avg_precision']:.2f}%")
+            print(f"Average Recall: {results['avg_recall']:.2f}%")
+            print(f"Average F1: {results['avg_f1']:.2f}%")
 
-                print("\nPer-class metrics:")
-                for class_idx, metrics in results['class_metrics']['precision'].items():
+            print("\nPer-class metrics:")
+            for class_idx, metrics in results['class_metrics']['precision'].items():
+                if class_idx in active_classes:
                     print(f"Class {class_idx}:")
                     print(f"  Precision: {results['class_metrics']['precision'][class_idx]:.2f}%")
                     print(f"  Recall: {results['class_metrics']['recall'][class_idx]:.2f}%")
                     print(f"  F1: {results['class_metrics']['f1'][class_idx]:.2f}%")
 
-                if mf1 > best_mf1:
-                    best_mf1 = mf1
-                    torch.save(model.module.state_dict() if train_cfg['DDP'] else model.state_dict(), save_dir / f"{cfg['MODEL']['NAME']}_{cfg['MODEL']['BACKBONE']}_{dataset_cfg['NAME']}.pth")
-                print(f"Current mf1: {mf1} Best mf1: {best_mf1}")
+            if mf1 > best_mf1:
+                best_mf1 = mf1
+                torch.save(model.module.state_dict() if train_cfg['DDP'] else model.state_dict(), save_dir / f"{cfg['MODEL']['NAME']}_{cfg['MODEL']['BACKBONE']}_{dataset_cfg['NAME']}.pth")
+            print(f"Current mf1: {mf1} Best mf1: {best_mf1}")
 
     pbar.close()
     end = time.gmtime(time.time() - start)

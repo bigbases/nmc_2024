@@ -15,14 +15,15 @@ class MultiLabelMetrics:
                 actual = target[i, j].item()
                 predicted = pred[i, j].item()
                 self.confusion_matrices[j][int(actual), int(predicted)] += 1
-
-    def compute_metrics(self) -> Dict[str, float]:
+    
+    def compute_metrics(self, active_classes) -> Dict[str, float]:
         accuracy = self.compute_accuracy()
         class_metrics = self.compute_precision_recall_f1()
+        active_num_classes = len(active_classes)
         
-        avg_precision = sum(class_metrics['precision'].values()) / self.num_classes
-        avg_recall = sum(class_metrics['recall'].values()) / self.num_classes
-        avg_f1 = sum(class_metrics['f1'].values()) / self.num_classes
+        avg_precision = sum(class_metrics['precision'].values()) / active_num_classes
+        avg_recall = sum(class_metrics['recall'].values()) / active_num_classes
+        avg_f1 = sum(class_metrics['f1'].values()) / active_num_classes
         
         return {
             'accuracy': round(accuracy, 2),
