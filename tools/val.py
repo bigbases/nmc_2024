@@ -107,7 +107,7 @@ def evaluate_epi(model, dataset, negative_prototype, device, num_episodes=10):
     metrics.update(result, query_y)
     active_support = torch.where(support_y.sum(dim=0) > 0)[0]
     active_classes = torch.where(query_y.sum(dim=0) > 0)[0]
-    print('supprot:',active_support)
+    print('support:',active_support)
     print('query:',active_classes)
     results = metrics.compute_metrics(active_classes)
     return results, active_classes

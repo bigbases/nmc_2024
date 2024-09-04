@@ -139,9 +139,9 @@ def main(cfg, gpu, save_dir):
         query_loss_item = class_proto_loss.item()
         pbar.set_description(f"Episode: [{episode_idx+1}/{num_episodes}] Support Loss: {train_loss:.8f} Query Loss: {query_loss_item:.8f}")
         pbar.update(1)
-
+        
         if (episode_idx + 1) % train_cfg['EVAL_INTERVAL'] == 0 or (episode_idx + 1) == num_episodes:
-            results,active_classes = evaluate_epi(model, episodic_dataset_test, negative_prototype, device, num_episodes=10)
+            results, active_classes = evaluate_epi(model, episodic_dataset_test, negative_prototype, device, num_episodes=10)
             mf1 = results['avg_f1']
             
             print(f"Accuracy: {results['accuracy']:.2f}%")
