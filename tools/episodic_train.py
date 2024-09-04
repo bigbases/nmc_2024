@@ -62,7 +62,7 @@ def main(cfg, gpu, save_dir):
     pbar = tqdm(total=num_episodes, desc=f"Episode: [{0}/{num_episodes}] Loss: {0:.8f}")
     
     print("Start Training ...")
-    epoch = 3
+    epoch = 1
     for episode_idx in range(num_episodes):
         model.train()
         # print(f"Episode index: {episode_idx}")
@@ -73,6 +73,12 @@ def main(cfg, gpu, save_dir):
         support_x, support_y = support_x.to(device), support_y.to(device)
         # support_y = [batch,n_class]
         query_x, query_y = query_x.to(device), query_y.to(device)
+        
+        #loss 추적
+        class_losses = {f"class_{i}": 0 for i in range(support_y.size(1))}
+        neg_proto_losses = {f"neg_proto_{i}": 0 for i in range(support_y.size(1))}
+        query_losses = {f"query_{i}": 0 for i in range(query_y.size(1))}
+        
         for _ in range(epoch):
             optimizer.zero_grad(set_to_none=True)
             
@@ -87,7 +93,7 @@ def main(cfg, gpu, save_dir):
                 #각 클래스별 loss 생성이 끝난 후 negative prototype을 만들어 각 임베딩별 loss 생성
                 negative_prototype = calculate_negative_prototypes(support_pred,support_y).detach()
 
-                
+                class_exists = (support_y.sum(dim=0) > 0)
                 for c in range(similarity_matrix.size(0)):
                     total_loss =0
                     class_similarities = similarity_matrix[c]
@@ -96,9 +102,12 @@ def main(cfg, gpu, save_dir):
                     if class_labels.sum() >= 2:  # skip if less than 2 samples for this class
                         class_loss = criterion_cls(class_similarities, class_labels) #contrastive loss
                         total_loss += class_loss
-                    if negative_prototype is not None:
+                        class_losses[f"class_{c}"] = class_loss.item()
+                        
+                    if negative_prototype is not None and class_exist[c]:
                         neg_proto_loss = criterion_proto(support_pred[:,c,:],support_y[:,c],negative_prototype)
                         total_loss += neg_proto_loss
+                        neg_proto_losses[f"neg_proto_{c}"] = neg_proto_loss.item()
                     
                     # 역전파
                     # 계산에 참여한 head만 자동으로 계산됨(디버깅함)
@@ -112,7 +121,8 @@ def main(cfg, gpu, save_dir):
             torch.cuda.synchronize()
         
         
-        optimizer.zero_grad(set_to_none=True)         
+        optimizer.zero_grad(set_to_none=True)      
+           
         with autocast(enabled=train_cfg['AMP']):
             query_pred = model(query_x)
             prototypes = compute_prototypes_multi_label(support_pred, support_y).detach()
@@ -126,17 +136,26 @@ def main(cfg, gpu, save_dir):
                 if class_proto_labels.sum() <1:
                     continue
                 class_proto_loss = criterion_cls(class_proto_similarities,class_proto_labels,query=True)
+                query_losses[f"query_{c}"] = class_proto_loss.item()
                 scaler.scale(class_proto_loss).backward(retain_graph=True)
                 
         scaler.step(optimizer)
         scaler.update()
         scheduler.step()
         torch.cuda.synchronize()
+        
+        # Create a formatted string for the losses
+        loss_str = " ".join([f"{k}: {v:.4f}" for k, v in {**class_losses, **neg_proto_losses, **query_losses}.items()])
 
-        train_loss = class_loss.item()
-        query_loss_item = class_proto_loss.item()
-        pbar.set_description(f"Episode: [{episode_idx+1}/{num_episodes}] Support Loss: {train_loss:.8f} Query Loss: {query_loss_item:.8f}")
+        pbar.set_description(f"Episode: [{episode_idx+1}/{num_episodes}]")
         pbar.update(1)
+        # 세로로 loss 출력
+        print("\nLosses:")
+        all_losses = {**class_losses, **neg_proto_losses, **query_losses}
+        max_key_length = max(len(key) for key in all_losses.keys())
+        for key, value in all_losses.items():
+            print(f"{key.ljust(max_key_length)}: {value:.4f}")
+        print()  # 빈 줄 추가
         
         if (episode_idx + 1) % train_cfg['EVAL_INTERVAL'] == 0 or (episode_idx + 1) == num_episodes:
             results, active_classes = evaluate_epi(model, episodic_dataset_test, negative_prototype, device, num_episodes=10)
