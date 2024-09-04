@@ -62,7 +62,7 @@ def main(cfg, gpu, save_dir):
     pbar = tqdm(total=num_episodes, desc=f"Episode: [{0}/{num_episodes}] Loss: {0:.8f}")
     
     print("Start Training ...")
-    
+    epoch = 3
     for episode_idx in range(num_episodes):
         model.train()
         # print(f"Episode index: {episode_idx}")
@@ -70,48 +70,46 @@ def main(cfg, gpu, save_dir):
             sampler.set_epoch(episode_idx)
 
         support_x, support_y, query_x, query_y = episodic_dataset_train.create_episode()
-
-        optimizer.zero_grad(set_to_none=True)
         support_x, support_y = support_x.to(device), support_y.to(device)
         # support_y = [batch,n_class]
         query_x, query_y = query_x.to(device), query_y.to(device)
-        
-        with autocast(enabled=train_cfg['AMP']):
-            support_pred = model(support_x)
-            #support_pred = [batch,n_class,embedding]
-                
-            similarity_matrix = dot_similarity(support_pred)
-            #dot_similarity = [n_class,batch,batch]
-            support_y_t = support_y.t()
+        for _ in range(epoch):
+            optimizer.zero_grad(set_to_none=True)
             
-            #각 클래스별 loss 생성이 끝난 후 negative prototype을 만들어 각 임베딩별 loss 생성
-            negative_prototype = calculate_negative_prototypes(support_pred,support_y).detach()
+            with autocast(enabled=train_cfg['AMP']):
+                support_pred = model(support_x)
+                #support_pred = [batch,n_class,embedding]
+                    
+                similarity_matrix = dot_similarity(support_pred)
+                #dot_similarity = [n_class,batch,batch]
+                support_y_t = support_y.t()
+                
+                #각 클래스별 loss 생성이 끝난 후 negative prototype을 만들어 각 임베딩별 loss 생성
+                negative_prototype = calculate_negative_prototypes(support_pred,support_y).detach()
 
-            
-            for c in range(similarity_matrix.size(0)):
-                total_loss =0
-                class_similarities = similarity_matrix[c]
-                class_labels = support_y_t[c]
                 
-                if class_labels.sum() >= 2:  # skip if less than 2 samples for this class
-                    class_loss = criterion_cls(class_similarities, class_labels) #contrastive loss
-                    total_loss += class_loss
-                if negative_prototype is not None:
-                    neg_proto_loss = criterion_proto(support_pred[:,c,:],support_y[:,c],negative_prototype)
-                    total_loss += neg_proto_loss
-                
-                # 역전파
-                # 계산에 참여한 head만 자동으로 계산됨(디버깅함)
-                # retain_traph를 통해 batch단위 loss 역전파동안 계산그래프 유지
-                scaler.scale(total_loss).backward(retain_graph=True)
-            
-            
-                
-        # opt step은 한번만
-        scaler.step(optimizer)
-        scaler.update()
-        scheduler.step()
-        torch.cuda.synchronize()
+                for c in range(similarity_matrix.size(0)):
+                    total_loss =0
+                    class_similarities = similarity_matrix[c]
+                    class_labels = support_y_t[c]
+                    
+                    if class_labels.sum() >= 2:  # skip if less than 2 samples for this class
+                        class_loss = criterion_cls(class_similarities, class_labels) #contrastive loss
+                        total_loss += class_loss
+                    if negative_prototype is not None:
+                        neg_proto_loss = criterion_proto(support_pred[:,c,:],support_y[:,c],negative_prototype)
+                        total_loss += neg_proto_loss
+                    
+                    # 역전파
+                    # 계산에 참여한 head만 자동으로 계산됨(디버깅함)
+                    # retain_traph를 통해 batch단위 loss 역전파동안 계산그래프 유지
+                    scaler.scale(total_loss).backward(retain_graph=True)
+                   
+            # opt step은 한번만
+            scaler.step(optimizer)
+            scaler.update()
+            scheduler.step()
+            torch.cuda.synchronize()
         
         
         optimizer.zero_grad(set_to_none=True)         
