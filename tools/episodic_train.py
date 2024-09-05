@@ -96,6 +96,7 @@ def main(cfg, gpu, save_dir):
                 class_exists = (support_y.sum(dim=0) > 0)
                 for c in range(similarity_matrix.size(0)):
                     total_loss =0
+                    class_loss=0
                     class_similarities = similarity_matrix[c]
                     class_labels = support_y_t[c]
                     
@@ -112,7 +113,7 @@ def main(cfg, gpu, save_dir):
                     # 역전파
                     # 계산에 참여한 head만 자동으로 계산됨(디버깅함)
                     # retain_traph를 통해 batch단위 loss 역전파동안 계산그래프 유지
-                    if total_loss is not 0:
+                    if class_loss is not 0:
                         scaler.scale(total_loss).backward(retain_graph=True)
                    
             # opt step은 한번만
