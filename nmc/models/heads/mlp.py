@@ -25,15 +25,21 @@ class MLPHead(nn.Module):
         return logits 
 
 class MLPMultiHead(nn.Module):
-    def __init__(self, num_features, num_embedding=768, pool_type='avg', drop_rate=0.0):
+    def __init__(self, num_features, num_embedding=768, pool_type='avg', drop_rate=0.1):
         super().__init__()
         self.global_pool = SelectAdaptivePool2d(pool_type=pool_type, flatten=True)
         self.norm = LayerNorm2d(num_features, eps=1e-5)
         
         self.head = nn.Sequential(
-                nn.Linear(num_features, num_embedding),
-                nn.Tanh()
-            )
+            nn.Linear(num_features, num_embedding),
+            nn.ReLU(),
+            nn.Dropout(drop_rate),
+            nn.Linear(num_embedding, num_embedding),
+            nn.ReLU(),
+            nn.Dropout(drop_rate),
+            nn.Linear(num_embedding, num_embedding)
+            # 마지막 레이어에서 활성 함수를 제거했습니다.
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.norm(x)
