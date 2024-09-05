@@ -104,7 +104,7 @@ def main(cfg, gpu, save_dir):
                         total_loss += class_loss
                         class_losses[f"class_{c}"] = class_loss.item()
                         
-                    if negative_prototype is not None and class_exist[c]:
+                    if negative_prototype is not None and class_exists[c]:
                         neg_proto_loss = criterion_proto(support_pred[:,c,:],support_y[:,c],negative_prototype)
                         total_loss += neg_proto_loss
                         neg_proto_losses[f"neg_proto_{c}"] = neg_proto_loss.item()
@@ -112,7 +112,8 @@ def main(cfg, gpu, save_dir):
                     # 역전파
                     # 계산에 참여한 head만 자동으로 계산됨(디버깅함)
                     # retain_traph를 통해 batch단위 loss 역전파동안 계산그래프 유지
-                    scaler.scale(total_loss).backward(retain_graph=True)
+                    if total_loss is not 0:
+                        scaler.scale(total_loss).backward(retain_graph=True)
                    
             # opt step은 한번만
             scaler.step(optimizer)

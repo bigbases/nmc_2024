@@ -45,19 +45,19 @@ def dot_product_similarity(query_embeddings, prototypes):
     
     return similarities
     
-def  (support_pred, support_y):
+def calculate_negative_prototypes(support_pred, support_y):
     batch_size, n_class, embedding_dim = support_pred.shape
     
     negative_prototypes = []
     class_exists = (support_y.sum(dim=0) > 0)
     
     for i in range(n_class):
-    # 중요!! cls learning을 수행할 수 있을 때만 negative sample 수집
-    if class_exists[i]:
-        zero_indices = (support_y[:, i] == 0).nonzero().squeeze()
-        
-        if zero_indices.dim() > 0:
-            negative_prototypes.append(support_pred[:, i, :][zero_indices])
+        # 중요!! cls learning을 수행할 수 있을 때만 negative sample 수집
+        if class_exists[i]:
+            zero_indices = (support_y[:, i] == 0).nonzero().squeeze()
+            
+            if zero_indices.dim() > 0:
+                negative_prototypes.append(support_pred[:, i, :][zero_indices])
         
     if len(negative_prototypes) >0:
         negative_prototypes = torch.cat(negative_prototypes, dim=0)
