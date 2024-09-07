@@ -7,6 +7,8 @@ from sklearn.preprocessing import MultiLabelBinarizer
 from torchvision.io import read_image
 from itertools import chain
 import sys
+import itertools
+
 
 class NMCDataset(Dataset):
     def __init__(self, image_dir, transform=None):
@@ -82,7 +84,7 @@ class EpisodicNMCDataset:
         df_path = os.path.join(root_dir, 'nmc_combined.csv')
 
         combined_df = pd.read_csv(df_path).dropna()
-        
+
         # Process labels to list format
         def process_label(x):
             if isinstance(x, str):
@@ -98,189 +100,206 @@ class EpisodicNMCDataset:
         
         combined_df['label'] = combined_df['label'].apply(filter_labels)
 
-        # 테스트용 minor cls DF
+        # Separate minor and major classes
         minor_class_df = combined_df[combined_df['label'].apply(lambda labels: bool(self.minor_cls & set(labels)))]
-        
-        # 전체 major cls DF
         non_minor_class_df = combined_df[~combined_df['label'].apply(lambda labels: bool(self.minor_cls & set(labels)))]
-        
-        # 전체 DF에서 비율에 따라 분리
+
+        # Train-test split
         train_size = int(len(combined_df) * split_ratio)
-        
-        # major cls DF에서 훈련 크기만큼 샘플링
-        train_df = non_minor_class_df.sample(n=train_size, random_state=42) 
-        # 나머지 major cls 샘플들 (테스트에 할당 예정)
+        train_df = non_minor_class_df.sample(n=train_size, random_state=12) 
         remaining_non_minor_df = non_minor_class_df.drop(train_df.index)
 
-        # minor cls DF + 나머지 major cls 샘플
         test_df = pd.concat([remaining_non_minor_df, minor_class_df], ignore_index=True) 
 
-        # Initialize the MultiLabelBinarizer and fit_transform the label column for both sets
+        # Initialize MultiLabelBinarizer
         self.mlb = MultiLabelBinarizer(classes=[int(i) for i in range(11)])
-        
 
+        # Train and Test sets with labels
         self.train_df = train_df.reset_index(drop=True)
         self.train_labels = self.mlb.fit_transform(self.train_df['label'])
-        # Trainset의 고유 라벨들
         self.train_unique_labels = sorted(list(set(sum(self.train_df['label'].tolist(), []))))
         
         self.test_df = test_df.reset_index(drop=True)
-        self.test_labels = self.mlb.transform(self.test_df['label'])  # Fit only on training data
-        # Testset의 고유 라벨들
+        self.test_labels = self.mlb.transform(self.test_df['label'])
         self.test_unique_labels = sorted(list(set(sum(self.test_df['label'].tolist(), []))))
 
         # Store number of classes
         self.n_classes = len(self.mlb.classes_)
 
+        # Pre-generate all possible episodes for train and test sets
+        self.train_episodes = self._pre_generate_train_episodes()
+        self.test_episodes = self._pre_generate_test_episodes()
+        self.train_episode_counter = 0  # To keep track of current train episode
+        self.test_episode_counter = 0   # To keep track of current test episode
+
         print("Training set size:", len(self.train_df))
         print("Test set size:", len(self.test_df))
         print(f'Train unique label: {self.train_unique_labels}')
         print(f'Test unique label: {self.test_unique_labels}')
-        
-    def get_train_test_split(self):
-        """
-        Returns the training and test datasets.
-        """
-        # Return training and test data separately
-        return EpisodicDataSubset(self.train_df, self.train_labels, self.image_dir, self.minor_cls, self.transform, self.n_way, self.k_shot, self.q_query, self.n_classes, self.train_unique_labels, True), \
-               EpisodicDataSubset(self.test_df, self.test_labels, self.image_dir, self.minor_cls, self.transform, self.n_way, self.k_shot, self.q_query, self.n_classes, self.test_unique_labels, False)
+        print(f'Training episode size: {len(self.train_episodes)}')
+        print(f'Test episode size: {len(self.test_episodes)}')
+        print(self.train_df['label'].explode().value_counts())  # 각 클래스의 샘플 수를 출력
+        print(self.test_df['label'].explode().value_counts())  # 각 클래스의 샘플 수를 출력
 
 
-class EpisodicDataSubset(Dataset):
-    def __init__(self, dataframe, labels, image_dir, minor_cls=[4,5],transform=None, n_way=5, k_shot=5, q_query=15, n_classes=None, unique_label=None, is_train=True):
-        self.dataframe = dataframe
-        self.labels = labels
-        self.image_dir = image_dir
-        self.minor_cls = minor_cls
-        self.transform = transform
-        self.n_way = n_way
-        self.k_shot = k_shot
-        self.q_query = q_query
-        self.n_classes = n_classes  # Set n_classes attribute
-        self.unique_label = unique_label
-        self.is_train = is_train
+    def _pre_generate_train_episodes(self):
+        episodes = []
+        unique_labels = self.train_unique_labels
+        combinations = list(itertools.combinations(unique_labels, self.n_way))
 
-    def __len__(self):
-        return len(self.dataframe)
-
-    def __getitem__(self, idx):
-        if idx < 0 or idx >= len(self.dataframe):
-            raise IndexError(f"Index {idx} is out-of-bounds")
-        
-        img_name = self.dataframe.iloc[idx]['image']
-        img_path = os.path.join(self.image_dir, 'combined_images', img_name)
-        image = read_image(img_path)
-        
-        label_vector = self.labels[idx]
-
-        if self.transform:
-            image = self.transform(image)
-
-        return image, torch.tensor(label_vector, dtype=torch.float32)
-
-    def create_episode(self):
-        support_x = []
-        support_y = []
-        query_x = []
-        query_y = []
-
-        if not self.is_train:  # Test case
-            chosen_classes = list(self.minor_cls)  
-            remaining_classes_needed = self.n_way - len(self.minor_cls)
-            remaining_classes = [label for label in self.unique_label if label not in self.minor_cls]
-            
-            if remaining_classes_needed > 0:
-                additional_classes = list(np.random.choice(remaining_classes, remaining_classes_needed, replace=False))
-                chosen_classes.extend(additional_classes)
-                
-            # minor cls 포함 n에 해당하는 샘플들
-            cls_indices_df = self.dataframe[self.dataframe['label'].apply(lambda labels: bool(set(labels) & set(chosen_classes)))]
-            
-        else:  # Train case
-            chosen_classes = np.random.choice(self.unique_label, self.n_way, replace=False).tolist()
-            chosen_classes_set = set(chosen_classes)
-            # 매 episode마다 랜덤으로 n개의 클래스 샘플링
-            cls_indices_df = self.dataframe[self.dataframe['label'].apply(lambda labels: bool(set(labels) & chosen_classes_set))]
-
-        if len(cls_indices_df) < self.k_shot + self.q_query:
-            raise ValueError("Not enough samples to create an episode with the chosen classes.")
-
-        support_indices = []
-        already_selected_indices = set()
-
-        # support set 생성 과정
-        for i in chosen_classes:
-            # 이미 사용한 샘플 제외
-            temp_df = cls_indices_df[cls_indices_df['label'].apply(lambda x: i in x) & ~cls_indices_df.index.isin(already_selected_indices)]
-            
-            if len(temp_df) < self.k_shot:
-                print(f"Not enough samples for class {i} to create a support set. Skipping this class.")
-                continue
-            
-            # n에 대해 k개만큼 샘플링
-            selected_rows = temp_df.sample(n=self.k_shot)
-            selected_indices = selected_rows.index.tolist()
-            support_indices += selected_indices
-            
-            # 사용한 샘플 추가 (중복 방지)
-            already_selected_indices.update(selected_indices)
-
-        if len(support_indices) < self.k_shot * self.n_way:
-            raise ValueError("Not enough support samples to create an episode. Try increasing the dataset size or adjusting k_shot.")
-
-        # support set
-        support_indices = list(set(support_indices))
-        # Support에서 사용한 샘플 제외 (for query set)
-        available_indices = list(set(cls_indices_df.index) - set(support_indices))
-        
-        if self.is_train: #Train Case
-            if len(available_indices) < self.q_query:
-                raise ValueError("Not enough samples available for the query set. Adjust the dataset size or k_shot and q_query values.")
-            # Trainset에서 Support에 사용하지 않은 샘플들로 샘플링 (minor class 제외하고 클래스에 상관없이, support set과 같은 클래스 종류)
-            query_indices = np.random.choice(available_indices, self.q_query, replace=False)
-        else:
-            # Testset에서 Support에 사용하지 않은 샘플들로 샘플링 (minor class는 무조건 포함, support set과 같은 클래스 종류)
-            remaining_indices_df = self.dataframe.loc[available_indices]
+        for combination in combinations:
+            support_indices = []
             query_indices = []
+            already_selected_indices = set()  # Track selected samples for support set
 
-            # 모든 클래스는 균등하게 배분 ([3,4,5]인 3-way, 10-query인 경우 3개씩 할당 후 나머지 한 개는 랜덤 할당)
-            num_samples_per_class = self.q_query // self.n_way  
-            num_remaining_samples = self.q_query % self.n_way
+            # Support set creation
+            for cls in combination:
+                # Include all samples for the class (allow duplicates in support)
+                cls_indices = self.train_df[self.train_df['label'].apply(lambda x: cls in x)].index.tolist()
+                
+                if len(cls_indices) < self.k_shot:
+                    print(f"Not enough samples for class {cls} in combination {combination} for support set. Needed: {self.k_shot}, Available: {len(cls_indices)}")
+                    print("Selected Train Support Indices DataFrame Rows:")
+                    print(self.train_df.loc[support_indices])  # 선택된 인덱스의 행을 출력
+                    break  # Skip if not enough samples for k-shot
 
-            for cls in chosen_classes:
-                class_samples = remaining_indices_df[remaining_indices_df['label'].apply(lambda labels: cls in labels)].index.tolist()
+                # 중복 허용 샘플 선택
+                selected_support = np.random.choice(cls_indices, self.k_shot, replace=False)
+                support_indices.extend(selected_support)
+                already_selected_indices.update(selected_support)  # Needed to avoid duplicates in query set
 
-                if len(class_samples) < num_samples_per_class:
-                    raise ValueError(f"Not enough samples for class {cls} to create a query set. Adjust the dataset size or q_query values.")
+            # Ensure enough support samples are selected
+            if len(support_indices) < self.k_shot * self.n_way:
+                print(f"Not enough support samples for combination {combination}. Needed: {self.k_shot * self.n_way}, Available: {len(support_indices)}")
+                continue
 
-                selected_samples = np.random.choice(class_samples, num_samples_per_class, replace=False)
-                query_indices.extend(selected_samples)
+            # Query set creation: must not overlap with support set or within query set
+            remaining_indices = list(set(self.train_df.index) - already_selected_indices)
+            remaining_df = self.train_df.loc[remaining_indices]
 
-            remaining_samples_pool = list(set(available_indices) - set(query_indices))
+            already_selected_for_query = set()  # Initialize globally for all classes
 
-            if len(remaining_samples_pool) < num_remaining_samples:
-                raise ValueError("Not enough samples available to fill the remaining query set. Adjust the dataset size or q_query values.")
+            for cls in combination:
+                # Query set에서 중복을 허용하지 않음
+                cls_indices = remaining_df[remaining_df['label'].apply(lambda x: cls in x) & ~remaining_df.index.isin(already_selected_for_query)].index.tolist()
+                
+                if len(cls_indices) < self.q_query // self.n_way:
+                    print(f"Not enough samples for class {cls} in combination {combination} for query set. Needed: {self.q_query // self.n_way}, Available: {len(cls_indices)}")
+                    break  # Skip if not enough samples for q-query
 
-            remaining_query_indices = np.random.choice(remaining_samples_pool, num_remaining_samples, replace=False)
-            query_indices.extend(remaining_query_indices)
-            query_indices = np.array(query_indices)
+                selected_query = np.random.choice(cls_indices, self.q_query // self.n_way, replace=False)
+                query_indices.extend(selected_query)
+                already_selected_for_query.update(selected_query)  # Update globally
 
-        # Prepare the support set
-        for idx in support_indices:
-            img, label = self.__getitem__(idx)
-            support_x.append(img)
-            support_y.append(label)
+            # Ensure enough query samples are selected
+            if len(query_indices) < self.q_query:
+                print(f"Not enough query samples for combination {combination}. Needed: {self.q_query}, Available: {len(query_indices)}")
+                continue
 
-        # Prepare the query set
-        for idx in query_indices:
-            img, label = self.__getitem__(idx)
-            query_x.append(img)
-            query_y.append(label)
+            # Save the episode
+            episodes.append((support_indices, query_indices))
 
-        return torch.stack(support_x), torch.stack(support_y), torch.stack(query_x), torch.stack(query_y)
+        print(f"Generated {len(episodes)} train episodes.")  # Log the number of generated episodes
+        return episodes
 
 
-# Epdisode를 만들어주는 DataLoader 추가
-def episodic_dataloader(dataset, num_episodes):
-    for _ in range(num_episodes):
-        yield dataset.create_episode()
+    def _pre_generate_test_episodes(self):
+        episodes = []
+        minor_labels = list(self.minor_cls)  # [4, 5]
+        major_labels = [label for label in self.test_unique_labels if label not in self.minor_cls]
+
+        # Generate combinations ensuring minor classes are included
+        for major_comb in itertools.combinations(major_labels, self.n_way - len(minor_labels)):
+            combination = minor_labels + list(major_comb)  # Ensure 4 and 5 are included in every combination
+            support_indices = []
+            query_indices = []
+            already_selected_indices = set()
+
+            # Support set creation
+            for cls in combination:
+                # Exclude already selected samples to avoid duplicates
+                cls_indices = self.test_df[self.test_df['label'].apply(lambda x: cls in x) & ~self.test_df.index.isin(already_selected_indices)].index.tolist()
+                if len(cls_indices) < self.k_shot:
+                    print("Selected Test Support Indices DataFrame Rows:")
+                    print(self.test_df.loc[support_indices])  # 선택된 인덱스의 행을 출력
+                    continue  # Skip if not enough samples for k-shot
+
+                selected_support = np.random.choice(cls_indices, self.k_shot, replace=False)
+                support_indices.extend(selected_support)
+                already_selected_indices.update(selected_support)
+
+            # Ensure enough support samples are selected
+            if len(support_indices) < self.k_shot * self.n_way:
+                continue
+
+            # Query set creation: must not overlap with support set or within query set
+            remaining_indices = list(set(self.test_df.index) - already_selected_indices)
+            remaining_df = self.test_df.loc[remaining_indices]
+
+            # 전역적으로 중복 방지를 위한 집합
+            already_selected_for_query = set()  # Initialize globally for all classes
+
+            for cls in combination:
+                # 모든 클래스에 대해 선택된 샘플을 전역적으로 중복 방지하도록 수정
+                cls_indices = remaining_df[remaining_df['label'].apply(lambda x: cls in x) & ~remaining_df.index.isin(already_selected_for_query)].index.tolist()
+                if len(cls_indices) < self.q_query // self.n_way:
+                    continue  # Skip if not enough samples for q-query
+
+                selected_query = np.random.choice(cls_indices, self.q_query // self.n_way, replace=False)
+                query_indices.extend(selected_query)
+                already_selected_for_query.update(selected_query)  # Update globally
+
+            # Ensure enough query samples are selected
+            if len(query_indices) < self.q_query:
+                
+                continue
+
+            # Save the episode
+            episodes.append((support_indices, query_indices))
+
+        return episodes
+
+    def create_episode(self, is_train=True):
+        """
+        Get a pre-generated episode for train or test set.
+        """
+        if is_train:
+            if self.train_episode_counter >= len(self.train_episodes):
+                raise IndexError("All training episodes have been used. Reset the episode counter or extend episodes.")
+            
+            support_indices, query_indices = self.train_episodes[self.train_episode_counter]
+            self.train_episode_counter += 1
+        else:
+            if self.test_episode_counter >= len(self.test_episodes):
+                raise IndexError("All testing episodes have been used. Reset the episode counter or extend episodes.")
+            
+            support_indices, query_indices = self.test_episodes[self.test_episode_counter]
+            self.test_episode_counter += 1
+        
+        # Fetch images and labels for support and query sets
+        support_x, support_y = self._fetch_data(support_indices, is_train)
+        query_x, query_y = self._fetch_data(query_indices, is_train)
+        
+        return support_x, support_y, query_x, query_y
+
+    def _fetch_data(self, indices, is_train=True):
+        """
+        Fetch data for given indices.
+        """
+        dataframe = self.train_df if is_train else self.test_df
+        labels = self.train_labels if is_train else self.test_labels
+
+        images, labels_out = [], []
+        for idx in indices:
+            img_name = dataframe.iloc[idx]['image']
+            img_path = os.path.join(self.image_dir, 'combined_images', img_name)
+            image = read_image(img_path)
+            label_vector = labels[idx]
+
+            if self.transform:
+                image = self.transform(image)
+
+            images.append(image)
+            labels_out.append(torch.tensor(label_vector, dtype=torch.float32))
+
+        return torch.stack(images), torch.stack(labels_out)
