@@ -93,7 +93,8 @@ def evaluate_epi(model, dataset, negative_prototype, device, num_episodes=10):
     metrics = MultiLabelMetrics(dataset.n_classes, device=device)
 
     # support train
-    support_x, support_y, query_x, query_y = dataset.create_episode()
+    # support_x, support_y, query_x, query_y = dataset.create_episode()
+    support_x, support_y, query_x, query_y = episodic_dataset.create_episode(is_train=False)
     support_x, support_y = support_x.to(device), support_y.to(device)
     with torch.enable_grad():
         support_pred, temp_model = test_support_train(model,support_x, support_y, negative_prototype, device)

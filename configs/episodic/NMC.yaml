@@ -11,7 +11,7 @@ DATASET:
   ROOT          : '/data/nmc/processed_image'   
 
   N_WAY: 5 #고유 클래스 개수
-  K_SHOT: 3 
+  K_SHOT: 3
   Q_QUERY: 15
   MINOR_CLS: [4,5]
   SPLIT_RATIO: 0.75

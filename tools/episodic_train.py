@@ -33,12 +33,11 @@ def main(cfg, gpu, save_dir):
     
     image_dir = Path(dataset_cfg['ROOT']) / 'train_images'
     transformations = get_train_augmentation(train_cfg['IMAGE_SIZE'])
-
-    episodic_dataset_train, episodic_dataset_test = eval(dataset_cfg['NAME'])(dataset_cfg['ROOT'], dataset_cfg['N_WAY'], dataset_cfg['K_SHOT'], dataset_cfg['Q_QUERY'], dataset_cfg['SPLIT_RATIO'], dataset_cfg['MINOR_CLS'], transformations).get_train_test_split()
-    print(f"Number of training samples: {len(episodic_dataset_train)}, Number of test samples: {len(episodic_dataset_test)}")
-    print("Episodic dataset is generated")
     
-    model = eval(cfg['MODEL']['NAME'])(cfg['MODEL']['BACKBONE'], episodic_dataset_train.n_classes)
+    episodic_dataset = eval(dataset_cfg['NAME'])(dataset_cfg['ROOT'], dataset_cfg['N_WAY'], dataset_cfg['K_SHOT'], dataset_cfg['Q_QUERY'], dataset_cfg['SPLIT_RATIO'], dataset_cfg['MINOR_CLS'], transformations)
+    # print("Episodic dataset is generated")
+
+    model = eval(cfg['MODEL']['NAME'])(cfg['MODEL']['BACKBONE'], episodic_dataset.n_classes)
     model.init_pretrained(cfg['MODEL']['PRETRAINED'])
     model.unfreezing_layer(cfg['MODEL']['UNFREEZE']) 
     model = model.to(device)
@@ -69,7 +68,8 @@ def main(cfg, gpu, save_dir):
         if train_cfg['DDP']:
             sampler.set_epoch(episode_idx)
 
-        support_x, support_y, query_x, query_y = episodic_dataset_train.create_episode()
+        # support_x, support_y, query_x, query_y = episodic_dataset_train.create_episode()
+        support_x, support_y, query_x, query_y = episodic_dataset.create_episode(is_train=True)
         support_x, support_y = support_x.to(device), support_y.to(device)
         # support_y = [batch,n_class]
         query_x, query_y = query_x.to(device), query_y.to(device)
@@ -160,7 +160,7 @@ def main(cfg, gpu, save_dir):
         print()  # 빈 줄 추가
         
         if (episode_idx + 1) % train_cfg['EVAL_INTERVAL'] == 0 or (episode_idx + 1) == num_episodes:
-            results, active_classes = evaluate_epi(model, episodic_dataset_test, negative_prototype, device, num_episodes=10)
+            results, active_classes = evaluate_epi(model, episodic_dataset, negative_prototype, device, num_episodes=10)
             mf1 = results['avg_f1']
             
             print(f"Accuracy: {results['accuracy']:.2f}%")
