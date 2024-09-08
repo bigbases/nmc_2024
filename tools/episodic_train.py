@@ -61,25 +61,26 @@ def main(cfg, gpu, save_dir):
     pbar = tqdm(total=num_episodes, desc=f"Episode: [{0}/{num_episodes}] Loss: {0:.8f}")
     
     print("Start Training ...")
-    epoch = 1
-    for episode_idx in range(num_episodes):
-        model.train()
-        # print(f"Episode index: {episode_idx}")
-        if train_cfg['DDP']:
-            sampler.set_epoch(episode_idx)
+    epoch = 3
+    for _ in range(epoch):
+        for episode_idx in range(num_episodes):
+            model.train()
+            # print(f"Episode index: {episode_idx}")
+            if train_cfg['DDP']:
+                sampler.set_epoch(episode_idx)
 
-        # support_x, support_y, query_x, query_y = episodic_dataset_train.create_episode()
-        support_x, support_y, query_x, query_y = episodic_dataset.create_episode(is_train=True)
-        support_x, support_y = support_x.to(device), support_y.to(device)
-        # support_y = [batch,n_class]
-        query_x, query_y = query_x.to(device), query_y.to(device)
-        
-        #loss 추적
-        class_losses = {f"class_{i}": 0 for i in range(support_y.size(1))}
-        neg_proto_losses = {f"neg_proto_{i}": 0 for i in range(support_y.size(1))}
-        query_losses = {f"query_{i}": 0 for i in range(query_y.size(1))}
-        
-        for _ in range(epoch):
+            # support_x, support_y, query_x, query_y = episodic_dataset_train.create_episode()
+            support_x, support_y, query_x, query_y = episodic_dataset.create_episode(is_train=True)
+            support_x, support_y = support_x.to(device), support_y.to(device)
+            # support_y = [batch,n_class]
+            query_x, query_y = query_x.to(device), query_y.to(device)
+            
+            #loss 추적
+            class_losses = {f"class_{i}": 0 for i in range(support_y.size(1))}
+            neg_proto_losses = {f"neg_proto_{i}": 0 for i in range(support_y.size(1))}
+            query_losses = {f"query_{i}": 0 for i in range(query_y.size(1))}
+            
+            
             optimizer.zero_grad(set_to_none=True)
             
             with autocast(enabled=train_cfg['AMP']):
@@ -115,71 +116,70 @@ def main(cfg, gpu, save_dir):
                     # retain_traph를 통해 batch단위 loss 역전파동안 계산그래프 유지
                     if class_loss is not 0:
                         scaler.scale(total_loss).backward(retain_graph=True)
-                   
+                    
             # opt step은 한번만
             scaler.step(optimizer)
             scaler.update()
             scheduler.step()
             torch.cuda.synchronize()
-        
-        
-        optimizer.zero_grad(set_to_none=True)      
-           
-        with autocast(enabled=train_cfg['AMP']):
-            query_pred = model(query_x)
-            prototypes = compute_prototypes_multi_label(support_pred, support_y).detach()
             
-            # prototypes shape : n_class , embedding_dim 
-            proto_sim = dot_product_similarity(query_pred,prototypes)  # (batch_size, num_classes)
-
-            for c in range(proto_sim.size(1)):
-                class_proto_similarities = proto_sim[:,c,:]
-                class_proto_labels = query_y[:,c]
-                if class_proto_labels.sum() <1:
-                    continue
-                class_proto_loss = criterion_cls(class_proto_similarities,class_proto_labels,query=True)
-                query_losses[f"query_{c}"] = class_proto_loss.item()
-                scaler.scale(class_proto_loss).backward(retain_graph=True)
+            optimizer.zero_grad(set_to_none=True)      
+            
+            with autocast(enabled=train_cfg['AMP']):
+                query_pred = model(query_x)
+                prototypes = compute_prototypes_multi_label(support_pred, support_y).detach()
                 
-        scaler.step(optimizer)
-        scaler.update()
-        scheduler.step()
-        torch.cuda.synchronize()
-        
-        # Create a formatted string for the losses
-        loss_str = " ".join([f"{k}: {v:.4f}" for k, v in {**class_losses, **neg_proto_losses, **query_losses}.items()])
+                # prototypes shape : n_class , embedding_dim 
+                proto_sim = dot_product_similarity(query_pred,prototypes)  # (batch_size, num_classes)
 
-        pbar.set_description(f"Episode: [{episode_idx+1}/{num_episodes}]")
-        pbar.update(1)
-        # 세로로 loss 출력
-        print("\nLosses:")
-        all_losses = {**class_losses, **neg_proto_losses, **query_losses}
-        max_key_length = max(len(key) for key in all_losses.keys())
-        for key, value in all_losses.items():
-            print(f"{key.ljust(max_key_length)}: {value:.4f}")
-        print()  # 빈 줄 추가
-        
-        if (episode_idx + 1) % train_cfg['EVAL_INTERVAL'] == 0 or (episode_idx + 1) == num_episodes:
-            results, active_classes = evaluate_epi(model, episodic_dataset, negative_prototype, device, num_episodes=10)
-            mf1 = results['avg_f1']
+                for c in range(proto_sim.size(1)):
+                    class_proto_similarities = proto_sim[:,c,:]
+                    class_proto_labels = query_y[:,c]
+                    if class_proto_labels.sum() <1:
+                        continue
+                    class_proto_loss = criterion_cls(class_proto_similarities,class_proto_labels,query=True)
+                    query_losses[f"query_{c}"] = class_proto_loss.item()
+                    scaler.scale(class_proto_loss).backward(retain_graph=True)
+                    
+            scaler.step(optimizer)
+            scaler.update()
+            scheduler.step()
+            torch.cuda.synchronize()
             
-            print(f"Accuracy: {results['accuracy']:.2f}%")
-            print(f"Average Precision: {results['avg_precision']:.2f}%")
-            print(f"Average Recall: {results['avg_recall']:.2f}%")
-            print(f"Average F1: {results['avg_f1']:.2f}%")
+            # Create a formatted string for the losses
+            loss_str = " ".join([f"{k}: {v:.4f}" for k, v in {**class_losses, **neg_proto_losses, **query_losses}.items()])
 
-            print("\nPer-class metrics:")
-            for class_idx, metrics in results['class_metrics']['precision'].items():
-                if class_idx in active_classes:
-                    print(f"Class {class_idx}:")
-                    print(f"  Precision: {results['class_metrics']['precision'][class_idx]:.2f}%")
-                    print(f"  Recall: {results['class_metrics']['recall'][class_idx]:.2f}%")
-                    print(f"  F1: {results['class_metrics']['f1'][class_idx]:.2f}%")
+            pbar.set_description(f"Episode: [{episode_idx+1}/{num_episodes}]")
+            pbar.update(1)
+            # 세로로 loss 출력
+            print("\nLosses:")
+            all_losses = {**class_losses, **neg_proto_losses, **query_losses}
+            max_key_length = max(len(key) for key in all_losses.keys())
+            for key, value in all_losses.items():
+                print(f"{key.ljust(max_key_length)}: {value:.4f}")
+            print()  # 빈 줄 추가
+            
+            if (episode_idx + 1) % train_cfg['EVAL_INTERVAL'] == 0 or (episode_idx + 1) == num_episodes:
+                results, active_classes = evaluate_epi(model, episodic_dataset, negative_prototype, device, num_episodes=10)
+                mf1 = results['avg_f1']
+                
+                print(f"Accuracy: {results['accuracy']:.2f}%")
+                print(f"Average Precision: {results['avg_precision']:.2f}%")
+                print(f"Average Recall: {results['avg_recall']:.2f}%")
+                print(f"Average F1: {results['avg_f1']:.2f}%")
 
-            if mf1 > best_mf1:
-                best_mf1 = mf1
-                torch.save(model.module.state_dict() if train_cfg['DDP'] else model.state_dict(), save_dir / f"{cfg['MODEL']['NAME']}_{cfg['MODEL']['BACKBONE']}_{dataset_cfg['NAME']}.pth")
-            print(f"Current mf1: {mf1} Best mf1: {best_mf1}")
+                print("\nPer-class metrics:")
+                for class_idx, metrics in results['class_metrics']['precision'].items():
+                    if class_idx in active_classes:
+                        print(f"Class {class_idx}:")
+                        print(f"  Precision: {results['class_metrics']['precision'][class_idx]:.2f}%")
+                        print(f"  Recall: {results['class_metrics']['recall'][class_idx]:.2f}%")
+                        print(f"  F1: {results['class_metrics']['f1'][class_idx]:.2f}%")
+
+                if mf1 > best_mf1:
+                    best_mf1 = mf1
+                    torch.save(model.module.state_dict() if train_cfg['DDP'] else model.state_dict(), save_dir / f"{cfg['MODEL']['NAME']}_{cfg['MODEL']['BACKBONE']}_{dataset_cfg['NAME']}.pth")
+                print(f"Current mf1: {mf1} Best mf1: {best_mf1}")
 
     pbar.close()
     end = time.gmtime(time.time() - start)
