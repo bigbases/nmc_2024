@@ -72,7 +72,7 @@ class NMCDataset(Dataset):
         return image, torch.tensor(label_vector, dtype=torch.float32)
 
 class EpisodicNMCDataset:
-    def __init__(self, root_dir, n_way, k_shot, q_query, split_ratio=0.75, minor_cls=[4, 5], transform=None):
+    def __init__(self, root_dir, n_way, k_shot, q_query, episodes, split_ratio=0.75, minor_cls=[4, 5], transform=None):
         self.image_dir = root_dir
         self.transform = transform
         self.n_way = n_way
@@ -80,6 +80,7 @@ class EpisodicNMCDataset:
         self.q_query = q_query
         self.split_ratio = split_ratio
         self.minor_cls = set(minor_cls)
+        self.num_episodes = episodes
         
         df_path = os.path.join(root_dir, 'nmc_combined.csv')
 
@@ -149,14 +150,26 @@ class EpisodicNMCDataset:
 
         # 모든 조합에 대해 episode 생성
         for combination in combinations:
-            support_indices, query_indices = self._generate_episode(combination, used_samples, self.train_df, allow_reuse=True)
+            # allow_reuse는 에피소드 간 중복 여부 (1번 에피소드에 등장한 샘플이 2번 에피소드에 등장 할 수 있음)
+            # 모든 조합에 대해선 에피소드 간 중복 허용 x (다양성을 위해)
+            support_indices, query_indices = self._generate_episode(combination, used_samples, self.train_df, allow_reuse=False)
             if support_indices and query_indices:
                 episodes.append((support_indices, query_indices))
 
         # 미사용 샘플 사용하기 위해 랜덤 조합으로 episode 생성
         while len(used_samples) < len(self.train_df):
             random_classes = np.random.choice(unique_labels, self.n_way, replace=False)
-            # allow_reuse는 에피소드 간 중복 허용 (1번 에피소드에 등장한 샘플이 2번 에피소드에 등장 할 수 있음)
+            # 에피소드 간 중복 허용
+            support_indices, query_indices = self._generate_episode(random_classes, used_samples, self.train_df, allow_reuse=True)
+            if support_indices and query_indices:
+                episodes.append((support_indices, query_indices))
+        
+        final_num_episodes = self.num_episodes - len(episodes)
+        
+        # 모든 샘플을 적어도 한 번씩 사용한 후 지정한 에피소드 개수만큼 랜덤으로 에피소드 생성 
+        for _ in range(final_num_episodes):
+            random_classes = np.random.choice(unique_labels, self.n_way, replace=False)
+            # 에피소드 간 중복 허용
             support_indices, query_indices = self._generate_episode(random_classes, used_samples, self.train_df, allow_reuse=True)
             if support_indices and query_indices:
                 episodes.append((support_indices, query_indices))
@@ -173,7 +186,7 @@ class EpisodicNMCDataset:
         # 소수 클래스를 무조건 포함하는 모든 조합에 대해 episode 생성
         for major_comb in itertools.combinations(major_labels, self.n_way - len(minor_labels)):
             combination = minor_labels + list(major_comb)
-            # allow_reuse는 에피소드 간 중복 허용
+            # 에피소드 간 중복 허용
             support_indices, query_indices = self._generate_episode(combination, used_samples, self.test_df, allow_reuse=True)
             if support_indices and query_indices:
                 episodes.append((support_indices, query_indices))
