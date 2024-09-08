@@ -18,7 +18,7 @@ DATASET:
   
 TRAIN:
   IMAGE_SIZE: [512, 512] 
-  NUM_EPISODES: 1000  # Total number of episodes
+  NUM_EPISODES: 300  # Total number of episodes
   EVAL_INTERVAL: 10  # Evaluate after every 100 episodes
   AMP: false
   DDP: false
