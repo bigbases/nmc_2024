@@ -141,123 +141,97 @@ class EpisodicNMCDataset:
         print(self.train_df['label'].explode().value_counts())  # 각 클래스의 샘플 수를 출력
         print(self.test_df['label'].explode().value_counts())  # 각 클래스의 샘플 수를 출력
 
-
     def _pre_generate_train_episodes(self):
         episodes = []
         unique_labels = self.train_unique_labels
         combinations = list(itertools.combinations(unique_labels, self.n_way))
+        used_samples = set()
 
+        # 모든 조합에 대해 episode 생성
         for combination in combinations:
-            support_indices = []
-            query_indices = []
-            already_selected_indices = set()  # Track selected samples for support set
+            support_indices, query_indices = self._generate_episode(combination, used_samples, self.train_df, allow_reuse=True)
+            if support_indices and query_indices:
+                episodes.append((support_indices, query_indices))
 
-            # Support set creation
-            for cls in combination:
-                # Include all samples for the class (allow duplicates in support)
-                cls_indices = self.train_df[self.train_df['label'].apply(lambda x: cls in x)].index.tolist()
-                
-                if len(cls_indices) < self.k_shot:
-                    print(f"Not enough samples for class {cls} in combination {combination} for support set. Needed: {self.k_shot}, Available: {len(cls_indices)}")
-                    print("Selected Train Support Indices DataFrame Rows:")
-                    print(self.train_df.loc[support_indices])  # 선택된 인덱스의 행을 출력
-                    break  # Skip if not enough samples for k-shot
+        # 미사용 샘플 사용하기 위해 랜덤 조합으로 episode 생성
+        while len(used_samples) < len(self.train_df):
+            random_classes = np.random.choice(unique_labels, self.n_way, replace=False)
+            # allow_reuse는 에피소드 간 중복 허용 (1번 에피소드에 등장한 샘플이 2번 에피소드에 등장 할 수 있음)
+            support_indices, query_indices = self._generate_episode(random_classes, used_samples, self.train_df, allow_reuse=True)
+            if support_indices and query_indices:
+                episodes.append((support_indices, query_indices))
 
-                # 중복 허용 샘플 선택
-                selected_support = np.random.choice(cls_indices, self.k_shot, replace=False)
-                support_indices.extend(selected_support)
-                already_selected_indices.update(selected_support)  # Needed to avoid duplicates in query set
-
-            # Ensure enough support samples are selected
-            if len(support_indices) < self.k_shot * self.n_way:
-                print(f"Not enough support samples for combination {combination}. Needed: {self.k_shot * self.n_way}, Available: {len(support_indices)}")
-                continue
-
-            # Query set creation: must not overlap with support set or within query set
-            remaining_indices = list(set(self.train_df.index) - already_selected_indices)
-            remaining_df = self.train_df.loc[remaining_indices]
-
-            already_selected_for_query = set()  # Initialize globally for all classes
-
-            for cls in combination:
-                # Query set에서 중복을 허용하지 않음
-                cls_indices = remaining_df[remaining_df['label'].apply(lambda x: cls in x) & ~remaining_df.index.isin(already_selected_for_query)].index.tolist()
-                
-                if len(cls_indices) < self.q_query // self.n_way:
-                    print(f"Not enough samples for class {cls} in combination {combination} for query set. Needed: {self.q_query // self.n_way}, Available: {len(cls_indices)}")
-                    break  # Skip if not enough samples for q-query
-
-                selected_query = np.random.choice(cls_indices, self.q_query // self.n_way, replace=False)
-                query_indices.extend(selected_query)
-                already_selected_for_query.update(selected_query)  # Update globally
-
-            # Ensure enough query samples are selected
-            if len(query_indices) < self.q_query:
-                print(f"Not enough query samples for combination {combination}. Needed: {self.q_query}, Available: {len(query_indices)}")
-                continue
-
-            # Save the episode
-            episodes.append((support_indices, query_indices))
-
-        print(f"Generated {len(episodes)} train episodes.")  # Log the number of generated episodes
+        print(f"Generated {len(episodes)} train episodes.")
         return episodes
-
 
     def _pre_generate_test_episodes(self):
         episodes = []
-        minor_labels = list(self.minor_cls)  # [4, 5]
+        minor_labels = list(self.minor_cls)  # 소수 클래스 무조건 포함
         major_labels = [label for label in self.test_unique_labels if label not in self.minor_cls]
+        used_samples = set()  # 사용된 샘플 트래킹
 
-        # Generate combinations ensuring minor classes are included
+        # 소수 클래스를 무조건 포함하는 모든 조합에 대해 episode 생성
         for major_comb in itertools.combinations(major_labels, self.n_way - len(minor_labels)):
-            combination = minor_labels + list(major_comb)  # Ensure 4 and 5 are included in every combination
-            support_indices = []
-            query_indices = []
-            already_selected_indices = set()
+            combination = minor_labels + list(major_comb)
+            # allow_reuse는 에피소드 간 중복 허용
+            support_indices, query_indices = self._generate_episode(combination, used_samples, self.test_df, allow_reuse=True)
+            if support_indices and query_indices:
+                episodes.append((support_indices, query_indices))
 
-            # Support set creation
-            for cls in combination:
-                # Exclude already selected samples to avoid duplicates
-                cls_indices = self.test_df[self.test_df['label'].apply(lambda x: cls in x) & ~self.test_df.index.isin(already_selected_indices)].index.tolist()
-                if len(cls_indices) < self.k_shot:
-                    print("Selected Test Support Indices DataFrame Rows:")
-                    print(self.test_df.loc[support_indices])  # 선택된 인덱스의 행을 출력
-                    continue  # Skip if not enough samples for k-shot
+        return episodes
 
+    def _generate_episode(self, classes, used_samples, df, allow_reuse=False):
+        support_indices, query_indices = [], []
+        already_selected_indices = set()
+
+        # Support set 생성
+        for cls in classes:
+            # 이미 쓰인 샘플 제외
+            cls_indices = df[df['label'].apply(lambda x: cls in x) & 
+                            ~df.index.isin(already_selected_indices) & 
+                            ~df.index.isin(used_samples)].index.tolist()
+
+            # 이미 쓰인 샘플 제외하고 shot 개수를 충족하지 못하면 중복 샘플링 허용 
+            if len(cls_indices) < self.k_shot and allow_reuse:
+                cls_indices = df[df['label'].apply(lambda x: cls in x) & 
+                                ~df.index.isin(already_selected_indices)].index.tolist()
+
+            # support 내에서 중복 허용하지 않고 샘플링
+            if len(cls_indices) >= self.k_shot:
                 selected_support = np.random.choice(cls_indices, self.k_shot, replace=False)
                 support_indices.extend(selected_support)
                 already_selected_indices.update(selected_support)
+                used_samples.update(selected_support)
 
-            # Ensure enough support samples are selected
-            if len(support_indices) < self.k_shot * self.n_way:
-                continue
+        # 개수 만족하는 지 확인
+        if len(support_indices) < self.k_shot * self.n_way:
+            return None, None
 
-            # Query set creation: must not overlap with support set or within query set
-            remaining_indices = list(set(self.test_df.index) - already_selected_indices)
-            remaining_df = self.test_df.loc[remaining_indices]
+        # Query set 생성
+        # support에서 쓰인 것 제외
+        remaining_indices = list(set(df.index) - already_selected_indices)
+        remaining_df = df.loc[remaining_indices]
+        already_selected_for_query = set()
 
-            # 전역적으로 중복 방지를 위한 집합
-            already_selected_for_query = set()  # Initialize globally for all classes
+        # 이미 쓰인 것 제외하고 추출
+        for cls in classes:
+            cls_indices = remaining_df[remaining_df['label'].apply(lambda x: cls in x) & 
+                                    ~remaining_df.index.isin(already_selected_for_query)].index.tolist()
 
-            for cls in combination:
-                # 모든 클래스에 대해 선택된 샘플을 전역적으로 중복 방지하도록 수정
-                cls_indices = remaining_df[remaining_df['label'].apply(lambda x: cls in x) & ~remaining_df.index.isin(already_selected_for_query)].index.tolist()
-                if len(cls_indices) < self.q_query // self.n_way:
-                    continue  # Skip if not enough samples for q-query
+            if len(cls_indices) < self.q_query // self.n_way:
+                continue 
+            
+            # query 내에서 중복 허용하지 않고 샘플링
+            selected_query = np.random.choice(cls_indices, self.q_query // self.n_way, replace=False)
+            query_indices.extend(selected_query)
+            already_selected_for_query.update(selected_query)
+            used_samples.update(selected_query)
 
-                selected_query = np.random.choice(cls_indices, self.q_query // self.n_way, replace=False)
-                query_indices.extend(selected_query)
-                already_selected_for_query.update(selected_query)  # Update globally
+        # 개수 만족하는 지 확인
+        if len(query_indices) < self.q_query:
+            return None, None
 
-            # Ensure enough query samples are selected
-            if len(query_indices) < self.q_query:
-                
-                continue
-
-            # Save the episode
-            episodes.append((support_indices, query_indices))
-
-        return episodes
+        return support_indices, query_indices
 
     def create_episode(self, is_train=True):
         """
