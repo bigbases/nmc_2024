@@ -8,7 +8,7 @@ from torchvision.io import read_image
 from itertools import chain
 import sys
 import itertools
-
+import random
 
 class NMCDataset(Dataset):
     def __init__(self, image_dir, transform=None):
@@ -132,6 +132,12 @@ class EpisodicNMCDataset:
         self.test_episodes = self._pre_generate_test_episodes()
         self.train_episode_counter = 0  # To keep track of current train episode
         self.test_episode_counter = 0   # To keep track of current test episode
+        
+        self.train_episode_order = list(range(len(self.train_episodes)))
+        self.test_episode_order = list(range(len(self.test_episodes)))
+
+        random.shuffle(self.train_episode_order)
+        random.shuffle(self.test_episode_order)
 
         print("Training set size:", len(self.train_df))
         print("Test set size:", len(self.test_df))
@@ -245,25 +251,29 @@ class EpisodicNMCDataset:
             return None, None
 
         return support_indices, query_indices
-
+    
     def create_episode(self, is_train=True):
-        """
-        Get a pre-generated episode for train or test set.
-        """
         if is_train:
             if self.train_episode_counter >= len(self.train_episodes):
-                raise IndexError("All training episodes have been used. Reset the episode counter or extend episodes.")
+                self.train_episode_counter = 0  # Reset counter
+                # 에포크 종료 시 무작위로 순서를 다시 섞어줌
+                random.shuffle(self.train_episode_order)
             
-            support_indices, query_indices = self.train_episodes[self.train_episode_counter]
+            # 셔플된 순서대로 에피소드 인덱스를 가져옴
+            episode_idx = self.train_episode_order[self.train_episode_counter]
+            support_indices, query_indices = self.train_episodes[episode_idx]
             self.train_episode_counter += 1
         else:
             if self.test_episode_counter >= len(self.test_episodes):
-                raise IndexError("All testing episodes have been used. Reset the episode counter or extend episodes.")
+                self.test_episode_counter = 0  # Reset counter
+                # 에포크 종료 시 무작위로 순서를 다시 섞어줌
+                random.shuffle(self.test_episode_order)
             
-            support_indices, query_indices = self.test_episodes[self.test_episode_counter]
+            # 셔플된 순서대로 에피소드 인덱스를 가져옴
+            episode_idx = self.test_episode_order[self.test_episode_counter]
+            support_indices, query_indices = self.test_episodes[episode_idx]
             self.test_episode_counter += 1
-        
-        # Fetch images and labels for support and query sets
+            
         support_x, support_y = self._fetch_data(support_indices, is_train)
         query_x, query_y = self._fetch_data(query_indices, is_train)
         
