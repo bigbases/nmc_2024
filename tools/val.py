@@ -67,17 +67,18 @@ def test_support_train(model, support_x, support_y, negative_prototype, device):
         optimizer.zero_grad()
         for c in range(similarity_matrix.size(0)):
             total_loss = 0
+            class_loss=0
             class_similarities = similarity_matrix[c]
             class_labels = support_y_t[c]
             
             if class_labels.sum() >= 2:
                 class_loss = criterion_cls(class_similarities, class_labels)
                 total_loss += class_loss
-            if negative_prototype is not None:
-                neg_proto_loss = criterion_proto(support_pred[:,c,:], support_y[:,c], negative_prototype)
-                total_loss += neg_proto_loss
-            
-            scaler.scale(total_loss).backward(retain_graph=(c < similarity_matrix.size(0) - 1))
+            # if negative_prototype is not None:
+            #     neg_proto_loss = criterion_proto(support_pred[:,c,:], support_y[:,c], negative_prototype)
+            #     total_loss += neg_proto_loss
+            if class_loss is not 0:
+                scaler.scale(total_loss).backward(retain_graph=(c < similarity_matrix.size(0) - 1))
     
     scaler.step(optimizer)
     scaler.update()
@@ -93,7 +94,7 @@ def evaluate_epi(model, dataset, negative_prototype, device, num_episodes=10):
 
     # support train
     # support_x, support_y, query_x, query_y = dataset.create_episode()
-    support_x, support_y, query_x, query_y = episodic_dataset.create_episode(is_train=False)
+    support_x, support_y, query_x, query_y = dataset.create_episode(is_train=False)
     support_x, support_y = support_x.to(device), support_y.to(device)
     with torch.enable_grad():
         support_pred, temp_model = test_support_train(model,support_x, support_y, negative_prototype, device)

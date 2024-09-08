@@ -9,7 +9,7 @@ class FGMaxxVit_Multi(BaseModel):
     def __init__(self, backbone: str = 'FGMaxxVit_Multi_label', num_classes: int=10):
         super().__init__(backbone, num_classes)
         
-        self.num_embedding= 256
+        self.num_embedding= 128
         self.head = ModuleList()
         for num_class in range(num_classes):
             self.head.append(MLPMultiHead(num_features=self.backbone.config.head_hidden_size,num_embedding=self.num_embedding))
