@@ -61,7 +61,7 @@ def main(cfg, gpu, save_dir):
     pbar = tqdm(total=num_episodes, desc=f"Episode: [{0}/{num_episodes}] Loss: {0:.8f}")
     
     print("Start Training ...")
-    epoch = 3
+    epoch = 10
     for _ in range(epoch):
         for episode_idx in range(num_episodes):
             model.train()
