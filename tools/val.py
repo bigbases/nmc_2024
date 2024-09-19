@@ -45,8 +45,7 @@ def evaluate_multilabel(model: torch.nn.Module, dataloader: torch.utils.data.Dat
         outputs = model(images)
         metrics.update(outputs, labels)
         
-    results = metrics.compute_metrics()
-    
+    results = metrics.compute_metrics_prev()
     return results
 
 def test_support_train(model, support_x, support_y, negative_prototype, device):

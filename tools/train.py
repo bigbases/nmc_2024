@@ -31,13 +31,12 @@ def main(cfg, gpu, save_dir):
     loss_cfg, optim_cfg, sched_cfg = cfg['LOSS'], cfg['OPTIMIZER'], cfg['SCHEDULER']
     epochs, lr = train_cfg['EPOCHS'], optim_cfg['LR']
     
-    traintransform = get_train_augmentation(train_cfg['IMAGE_SIZE'])
-    valtransform = get_val_augmentation(eval_cfg['IMAGE_SIZE'])
-
-    trainset = eval(dataset_cfg['NAME'])(dataset_cfg['ROOT']+'/train_images', traintransform)
-    valset = eval(dataset_cfg['NAME'])(dataset_cfg['ROOT']+'/val_images', valtransform)
-
-    model = eval(model_cfg['NAME'])(model_cfg['BACKBONE'], trainset.n_classes)
+    # Get train, val, and test datasets
+    transform = get_train_augmentation(train_cfg['IMAGE_SIZE'])
+    dataset = eval(dataset_cfg['NAME'])(dataset_cfg['ROOT']+'/combined_images', dataset_cfg['TRAIN_RATIO'], dataset_cfg['VALID_RATIO'], dataset_cfg['TEST_RATIO'], transform)
+    trainset, valset, testset = dataset.get_splits()
+    
+    model = eval(model_cfg['NAME'])(model_cfg['BACKBONE'], dataset.n_classes)
     model.init_pretrained(model_cfg['PRETRAINED'])
     model.unfreezing_layer(model_cfg['UNFREEZE']) 
     model = model.to(device)
@@ -47,9 +46,10 @@ def main(cfg, gpu, save_dir):
         model = DDP(model, device_ids=[gpu])
     else:
         sampler = RandomSampler(trainset)
-    
+        
     trainloader = DataLoader(trainset, batch_size=train_cfg['BATCH_SIZE'], num_workers=num_workers, drop_last=True, pin_memory=True, sampler=sampler)
     valloader = DataLoader(valset, batch_size=1, num_workers=1, pin_memory=True)
+    testloader = DataLoader(testset, batch_size=1, num_workers=1, pin_memory=True)
 
     iters_per_epoch = len(trainset) // train_cfg['BATCH_SIZE']
     # class_weights = trainset.class_weights.to(device)
@@ -92,10 +92,10 @@ def main(cfg, gpu, save_dir):
         torch.cuda.empty_cache()
 
         if (epoch+1) % train_cfg['EVAL_INTERVAL'] == 0 or (epoch+1) == epochs:
-            if dataset_cfg['NAME'] == 'NMCDataset':
-                results = evaluate_multilabel(model, valloader, device)
-            else:
+            if dataset_cfg['NAME'] == 'APTOSDataset':
                 results = evaluate(model, valloader, device)
+            else:
+                results = evaluate_multilabel(model, valloader, device)
             mf1 = results['avg_f1']
             #writer.add_scalar('val/mf1', mf1, epoch)
             
@@ -110,10 +110,10 @@ def main(cfg, gpu, save_dir):
                 print(f"  Precision: {results['class_metrics']['precision'][class_idx]:.2f}%")
                 print(f"  Recall: {results['class_metrics']['recall'][class_idx]:.2f}%")
                 print(f"  F1: {results['class_metrics']['f1'][class_idx]:.2f}%")
-
+                
             if mf1 > best_mf1:
                 best_mf1 = mf1
-                torch.save(model.module.state_dict() if train_cfg['DDP'] else model.state_dict(), save_dir / f"{model_cfg['NAME']}_{model_cfg['BACKBONE']}_{dataset_cfg['NAME']}.pth")
+                torch.save(model.module.state_dict() if train_cfg['DDP'] else model.state_dict(), save_dir / f"{model_cfg['NAME']}_{model_cfg['BACKBONE']}_{model_cfg['UNFREEZE']}_{dataset_cfg['NAME']}_{model_cfg['VERSION']}.pth")
             print(f"Current mf1: {mf1} Best mf1: {best_mf1}")
 
     #writer.close()

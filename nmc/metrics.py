@@ -15,6 +15,22 @@ class MultiLabelMetrics:
                 actual = target[i, j].item()
                 predicted = pred[i, j].item()
                 self.confusion_matrices[j][int(actual), int(predicted)] += 1
+                
+    def compute_metrics_prev(self) -> Dict[str, float]:
+        accuracy = self.compute_accuracy()
+        class_metrics = self.compute_precision_recall_f1()
+        
+        avg_precision = sum(class_metrics['precision'].values()) / self.num_classes
+        avg_recall = sum(class_metrics['recall'].values()) / self.num_classes
+        avg_f1 = sum(class_metrics['f1'].values()) / self.num_classes
+        
+        return {
+            'accuracy': round(accuracy, 2),
+            'avg_precision': round(avg_precision, 2),
+            'avg_recall': round(avg_recall, 2),
+            'avg_f1': round(avg_f1, 2),
+            'class_metrics': class_metrics
+        }
     
     def compute_metrics(self, active_classes) -> Dict[str, float]:
         accuracy = self.compute_accuracy()
@@ -85,15 +101,16 @@ class Metrics:
         correct = torch.diag(self.confusion_matrix).sum()
         total = self.confusion_matrix.sum()
         return (correct / total * 100).item()
-
+    
     def compute_precision_recall_f1(self) -> Dict[str, Dict[int, float]]:
         tp = torch.diag(self.confusion_matrix)
         fp = self.confusion_matrix.sum(dim=0) - tp
         fn = self.confusion_matrix.sum(dim=1) - tp
 
-        precision = tp / (tp + fp)
-        recall = tp / (tp + fn)
-        f1 = 2 * (precision * recall) / (precision + recall)
+        # Avoid division by zero by adding a small epsilon or using conditional logic
+        precision = torch.where((tp + fp) > 0, tp / (tp + fp), torch.tensor(float('nan')))
+        recall = torch.where((tp + fn) > 0, tp / (tp + fn), torch.tensor(float('nan')))
+        f1 = torch.where((precision + recall) > 0, 2 * (precision * recall) / (precision + recall), torch.tensor(float('nan')))
 
         results = {
             'precision': {},
@@ -102,11 +119,34 @@ class Metrics:
         }
 
         for i in range(self.num_classes):
-            results['precision'][i] = precision[i].item() * 100
-            results['recall'][i] = recall[i].item() * 100
-            results['f1'][i] = f1[i].item() * 100
+            results['precision'][i] = precision[i].item() * 100 if not torch.isnan(precision[i]) else 0.0
+            results['recall'][i] = recall[i].item() * 100 if not torch.isnan(recall[i]) else 0.0
+            results['f1'][i] = f1[i].item() * 100 if not torch.isnan(f1[i]) else 0.0
 
         return results
+
+
+    # def compute_precision_recall_f1(self) -> Dict[str, Dict[int, float]]:
+    #     tp = torch.diag(self.confusion_matrix)
+    #     fp = self.confusion_matrix.sum(dim=0) - tp
+    #     fn = self.confusion_matrix.sum(dim=1) - tp
+
+    #     precision = tp / (tp + fp)
+    #     recall = tp / (tp + fn)
+    #     f1 = 2 * (precision * recall) / (precision + recall)
+
+    #     results = {
+    #         'precision': {},
+    #         'recall': {},
+    #         'f1': {}
+    #     }
+
+    #     for i in range(self.num_classes):
+    #         results['precision'][i] = precision[i].item() * 100
+    #         results['recall'][i] = recall[i].item() * 100
+    #         results['f1'][i] = f1[i].item() * 100
+
+    #     return results
 
     def compute_metrics(self) -> Dict[str, float]:
         accuracy = self.compute_accuracy()
