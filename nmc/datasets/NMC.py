@@ -1,32 +1,26 @@
+import itertools
+import random
 import torch
 from torch.utils.data import Dataset, DataLoader
+from itertools import chain
 import pandas as pd 
 import os 
 import numpy as np 
 from sklearn.preprocessing import MultiLabelBinarizer
 from torchvision.io import read_image
-from itertools import chain
-import sys
-import itertools
-import random
+from skmultilearn.model_selection import iterative_train_test_split
 
 class NMCDataset(Dataset):
-    def __init__(self, image_dir, transform=None):
-        print(image_dir)
-        data = image_dir.split('/')[-1]
-        if 'train_images' == data: 
-            df_path = image_dir.replace('train_images', 'nmc_train.csv')
-        elif 'test_images' == data:
-            df_path = image_dir.replace('test_images', 'nmc_test.csv')
-        elif 'val_images' == data:
-            df_path = image_dir.replace('val_images', 'nmc_valid.csv')
-        else:
-            raise ValueError('Invalid image directory name.')
+    def __init__(self, image_dir, train_ratio=0.7, valid_ratio=0.15, test_ratio=0.15, transform=None):
+        print(image_dir)        
+        
+        # Assuming combined CSV file path
+        df_path = image_dir.replace('combined_images', 'nmc_combined.csv')
         
         self.dataframe = pd.read_csv(df_path)
         self.dataframe = self.dataframe.dropna()
-        
-        # Ensure the label column is treated as a list of labels
+
+        # Preprocessing labels
         def process_label(x):
             if isinstance(x, str):
                 return x.split(',')
@@ -34,8 +28,8 @@ class NMCDataset(Dataset):
                 raise ValueError(f"Unexpected label value: {x}")
         
         self.dataframe['label'] = self.dataframe['label'].apply(process_label)
-        
-        # 필터링하여 0~10 범위의 레이블만 남기기
+
+        # Filter labels to be in the range of 0-10
         def filter_labels(labels):
             return [int(label) for label in labels if label and 0 <= int(label) <= 10]
         
@@ -43,14 +37,34 @@ class NMCDataset(Dataset):
         
         # Initialize the MultiLabelBinarizer and fit_transform the label column
         self.mlb = MultiLabelBinarizer(classes=[i for i in range(11)])
-        self.one_hot_labels = self.mlb.fit_transform(self.dataframe['label'])
-        
-        # print("Classes found by MultiLabelBinarizer:", self.mlb.classes_)
-        # print("One-hot encoded labels shape:", self.one_hot_labels.shape)
+        labels = self.mlb.fit_transform(self.dataframe['label'])
 
-        # 데이터프레임의 고유한 레이블 값 확인
-        unique_labels = set(label for sublist in self.dataframe['label'] for label in sublist)
-        print("Unique labels in dataframe:", unique_labels)
+        # Perform iterative stratified split for train (70%) and remaining (30%)
+        X = self.dataframe['image'].values.reshape(-1, 1)  # Image paths as features
+        y = labels  # Multi-hot encoded labels
+
+        X_train, y_train, X_remaining, y_remaining = iterative_train_test_split(X, y, test_size=(1 - train_ratio))
+
+        # Further split remaining data into val (50% of remaining) and test (50% of remaining)
+        X_val, y_val, X_test, y_test = iterative_train_test_split(X_remaining, y_remaining, test_size=(test_ratio / (valid_ratio + test_ratio)))
+
+        # Convert the split data back to DataFrames
+        train_df = pd.DataFrame({'image': X_train.flatten(), 'label': self.mlb.inverse_transform(y_train)})
+        val_df = pd.DataFrame({'image': X_val.flatten(), 'label': self.mlb.inverse_transform(y_val)})
+        test_df = pd.DataFrame({'image': X_test.flatten(), 'label': self.mlb.inverse_transform(y_test)})
+        
+        print(train_df['label'].value_counts())
+        print(f'train size: {len(train_df)}')
+        print(val_df['label'].value_counts())
+        print(f'val size: {len(val_df)}')
+        print(test_df['label'].value_counts())
+        print(f'test size: {len(test_df)}')
+        
+        # Store the split dataframes and labels
+        self.train_data = (train_df, y_train)
+        self.val_data = (val_df, y_val)
+        self.test_data = (test_df, y_test)
+
         self.CLASSES = [0,1,2,3,4,5,6,7,8,9,10]
         self.n_classes = len(self.CLASSES)
         self.image_dir = image_dir
@@ -65,6 +79,43 @@ class NMCDataset(Dataset):
         image = read_image(img_path)
         
         label_vector = self.one_hot_labels[idx]
+
+        if self.transform:
+            image = self.transform(image)
+
+        return image, torch.tensor(label_vector, dtype=torch.float32)
+
+    def get_splits(self):
+        """ Return train, val, test datasets as NMCDataset instances """
+        train_df, train_labels = self.train_data
+        val_df, val_labels = self.val_data
+        test_df, test_labels = self.test_data
+        
+        train_dataset = NMCDatasetSplit(train_df, train_labels, self.n_classes, self.image_dir, self.transform)
+        val_dataset = NMCDatasetSplit(val_df, val_labels, self.n_classes, self.image_dir, self.transform)
+        test_dataset = NMCDatasetSplit(test_df, test_labels, self.n_classes, self.image_dir, self.transform)
+        
+        return train_dataset, val_dataset, test_dataset
+
+
+class NMCDatasetSplit(Dataset):
+    """Helper class for creating dataset instances for train, val, and test splits"""
+    def __init__(self, dataframe, labels, n_classes, image_dir, transform=None):
+        self.dataframe = dataframe
+        self.labels = labels
+        self.image_dir = image_dir
+        self.transform = transform
+        self.n_classes = n_classes
+        
+    def __len__(self):
+        return len(self.dataframe)
+    
+    def __getitem__(self, idx):
+        img_name = self.dataframe.iloc[idx]['image']
+        img_path = os.path.join(self.image_dir, img_name)
+        image = read_image(img_path)
+        
+        label_vector = self.labels[idx]
 
         if self.transform:
             image = self.transform(image)

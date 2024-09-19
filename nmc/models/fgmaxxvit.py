@@ -14,7 +14,8 @@ class FGMaxxVit(BaseModel):
         y = self.backbone(x)
         y = self.head(y)
         return y
-    
+
+#Multi-task    
 class Multi_FGMaxxVit(BaseModel):
     def __init__(self, backbone: str = 'FGMaxxVit', num_classes: int = 11):
         super().__init__(backbone, num_classes)

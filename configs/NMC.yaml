@@ -1,17 +1,21 @@
-DEVICE          : cuda:0             # device used for training and evaluation (cpu, cuda, cuda0, cuda1, ...)
+DEVICE          : cuda:2            # device used for training and evaluation (cpu, cuda, cuda0, cuda1, ...)
 SAVE_DIR        : 'output'         # output folder name used for saving the model, logs and inference results
 
 MODEL:                                    
-  NAME          : FGMaxxVit                                           # name of the model you are using
+  NAME          : FGMaxxVit                                    # name of the model you are using
   BACKBONE      : FGMaxxVit                                                  # model variant
   PRETRAINED    : 'checkpoints/pretrained/maxvit_base_tf_512.in1k_pretrained_weights.pth'              # backbone model's weight 
-  UNFREEZE      : 'encoder.stages.3'                         # Freeze all layers without UNFREEZE ['encoder.stages.0', 'encoder.stages.1', 'encoder.stages.2', 'encoder.stages.3', None]
+  UNFREEZE      : 'full'                     # Freeze all layers without UNFREEZE ['encoder.stages.0', 'encoder.stages.1', 'encoder.stages.2', 'encoder.stages.3', None, 'full']
+  VERSION : 'ImageNet_APTOS_1024'
 
 DATASET:
   NAME          : NMCDataset                                          # dataset name to be trained with (camvid, cityscapes, ade20k)
-  ROOT          : '/data_2/national_AI_DD/nmc/processed_image'
-  # ROOT          : '/data/nmc/processed_image'                         # dataset root path
+  # ROOT          : '/data_2/national_AI_DD/nmc/processed_image'
+  ROOT          : '/data/nmc/processed_image'                         # dataset root path
   #IGNORE_LABEL  : -1
+  TRAIN_RATIO   : 0.7
+  VALID_RATIO   : 0.15
+  TEST_RATIO    : 0.15
 
 TRAIN:
   IMAGE_SIZE    : [512, 512]      # training image size in (h, w)
@@ -35,7 +39,6 @@ SCHEDULER:
   POWER         : 0.9             # scheduler power
   WARMUP        : 10              # warmup epochs used in scheduler
   WARMUP_RATIO  : 0.1             # warmup ratio
-  
 
 EVAL:
   MODEL_PATH    : 'checkpoints/pretrained/FGMaxxVit/FGMaxxVit.FGMaxxVit.NMC.pth'  # trained model file path
@@ -44,7 +47,6 @@ EVAL:
   #   ENABLE      : false                                                                 # multi-scale and flip evaluation  
   #   FLIP        : true                                                                  # use flip in evaluation  
   #   SCALES      : [0.5, 0.75, 1.0, 1.25, 1.5, 1.75]                                     # scales used in MSF evaluation                
-
 
 TEST:
   MODEL_PATH    : 'checkpoints/pretrained/FGMaxxVit/FGMaxxVit.FGMaxxVit.NMC.pth'  # trained model file path
