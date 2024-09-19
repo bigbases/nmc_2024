@@ -97,7 +97,7 @@ def main(cfg, gpu, save_dir):
                 class_exists = (support_y.sum(dim=0) > 0)
                 for c in range(similarity_matrix.size(0)):
                     total_loss =0
-                    class_loss=0
+                    class_loss=0 
                     class_similarities = similarity_matrix[c]
                     class_labels = support_y_t[c]
                     
@@ -106,10 +106,10 @@ def main(cfg, gpu, save_dir):
                         total_loss += class_loss
                         class_losses[f"class_{c}"] = class_loss.item()
                         
-                    # if negative_prototype is not None and class_exists[c]:
-                    #     neg_proto_loss = criterion_proto(support_pred[:,c,:],support_y[:,c],negative_prototype)
-                    #     total_loss += neg_proto_loss
-                    #     neg_proto_losses[f"neg_proto_{c}"] = neg_proto_loss.item()
+                    if negative_prototype is not None and class_exists[c]:
+                        neg_proto_loss = criterion_proto(support_pred[:,c,:],support_y[:,c],negative_prototype)
+                        total_loss += neg_proto_loss
+                        neg_proto_losses[f"neg_proto_{c}"] = neg_proto_loss.item()
                     
                     # 역전파
                     # 계산에 참여한 head만 자동으로 계산됨(디버깅함)
