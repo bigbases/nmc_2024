@@ -48,13 +48,12 @@ def evaluate_multilabel(model: torch.nn.Module, dataloader: torch.utils.data.Dat
     results = metrics.compute_metrics_prev()
     return results
 
-def test_support_train(model, support_x, support_y, negative_prototype, device):
+def test_support_train(model, support_x, support_y, device):
     temp_model = copy.deepcopy(model).to(device)
     temp_model.train()
     
     optimizer = torch.optim.AdamW(temp_model.parameters(), lr=0.001, weight_decay=0.01)
     criterion_cls = get_loss('Contrastive')
-    criterion_proto = get_loss('NegProtoSim')
     
     scaler = torch.cuda.amp.GradScaler()
     
@@ -73,9 +72,7 @@ def test_support_train(model, support_x, support_y, negative_prototype, device):
             if class_labels.sum() >= 2:
                 class_loss = criterion_cls(class_similarities, class_labels)
                 total_loss += class_loss
-            if negative_prototype is not None:
-                neg_proto_loss = criterion_proto(support_pred[:,c,:], support_y[:,c], negative_prototype)
-                total_loss += neg_proto_loss
+            
             if class_loss is not 0:
                 scaler.scale(total_loss).backward(retain_graph=(c < similarity_matrix.size(0) - 1))
     
@@ -85,7 +82,7 @@ def test_support_train(model, support_x, support_y, negative_prototype, device):
     return support_pred, temp_model
 
 @torch.no_grad()
-def evaluate_epi(model, dataset, negative_prototype, device, num_episodes=10):
+def evaluate_epi(model, dataset, device, num_episodes=10):
     print('Evaluating...')
     #global_prototypes : n_class, pn, embeddings
     model.eval()
@@ -96,16 +93,30 @@ def evaluate_epi(model, dataset, negative_prototype, device, num_episodes=10):
     support_x, support_y, query_x, query_y = dataset.create_episode(is_train=False)
     support_x, support_y = support_x.to(device), support_y.to(device)
     with torch.enable_grad():
-        support_pred, temp_model = test_support_train(model,support_x, support_y, negative_prototype, device)
+        support_pred, temp_model = test_support_train(model,support_x, support_y, device)
     temp_model.eval()
     query_x = query_x.to(device)
     query_y = query_y.to(device)
     
     query_pred = temp_model(query_x)
-    prototypes = compute_prototypes_multi_label(support_pred, support_y).detach()
-    proto_sim = dot_product_similarity(query_pred,prototypes)  # (batch_size, num_classes)
-    result = (proto_sim[:, :, 0] >= proto_sim[:, :, 1]).long()    
-    metrics.update(result, query_y)
+    prototypes, pos_dist, neg_dist = compute_prototypes_dist(support_pred,support_y)
+    distances = compute_query_dist(query_pred,prototypes)
+    
+    # pos_dist와 neg_dist의 중간값 계산
+    threshold = (pos_dist + neg_dist) / 2
+
+    # distances와 threshold 비교
+    predicted_labels = torch.zeros_like(distances)
+
+    for c in range(distances.size(1)):  # 각 클래스에 대해
+        class_threshold = threshold[c]
+        class_distances = distances[:, c]
+        
+        # class_distances가 threshold보다 작으면(pos_dist에 가까우면) 1, 크면(neg_dist에 가까우면) 0
+        predicted_labels[:, c] = (class_distances < class_threshold).float()
+    
+
+    metrics.update(predicted_labels, query_y)
     active_support = torch.where(support_y.sum(dim=0) > 0)[0]
     active_classes = torch.where(query_y.sum(dim=0) > 0)[0]
     print('support:',active_support)

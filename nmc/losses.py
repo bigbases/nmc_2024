@@ -15,7 +15,45 @@ class NegProtoSim(nn.Module):
         
         neg_log_likelihood = -torch.log_softmax(-scaled_similarities, dim=0)
         return neg_log_likelihood.mean()
+class DistContrastive(nn.Module):
+    def __init__(self, scale_factor=10.0, device='cuda:1') -> None:
+        super().__init__()
+        self.scale_factor = scale_factor
+        self.bn = nn.BatchNorm1d(1).to(device)
+        self.device = device
+    def forward(self, class_distances, class_labels, pos_margin=0.1, neg_margin=0.9):
+        # 거리 스케일 조정 및 배치 정규화 적용
+        class_distances = self.bn(class_distances.unsqueeze(1)).squeeze(1)
+        class_distances = self.scale_factor * class_distances
+        
+        # 거리를 유사도로 변환 (선택적)
+        # similarity = 1 / (1 + class_distances)
+        # class_distances = 1 - similarity  # 유사도가 높을수록 거리가 작아지도록
 
+        positive_mask = class_labels == 1
+        negative_mask = class_labels == 0
+        
+        # L1 손실(절대값) 사용
+        positive_loss = F.relu(class_distances - pos_margin).abs() * positive_mask.float()
+        negative_loss = F.relu(neg_margin - class_distances).abs() * negative_mask.float()
+        
+        num_positives = positive_mask.sum()
+        num_negatives = negative_mask.sum()
+        
+        if num_positives > 0:
+            positive_loss = positive_loss.sum() / num_positives
+        else:
+            positive_loss = torch.tensor(0., device=class_distances.device)
+        
+        if num_negatives > 0:
+            negative_loss = negative_loss.sum() / num_negatives
+        else:
+            negative_loss = torch.tensor(0., device=class_distances.device)
+        
+        # 로그 스케일 사용 및 엡실론 추가
+        total_loss = torch.log1p(positive_loss + negative_loss + 1e-6)
+        
+        return total_loss
 class Contrastive(nn.Module):
     def __init__(self) -> None:
         super().__init__()
@@ -119,11 +157,11 @@ class Dice(nn.Module):
         return self._forward(preds, targets)
 
 
-__all__ = ['CrossEntropy', 'OhemCrossEntropy', 'Dice', 'Contrastive','NegProtoSim']
+__all__ = ['CrossEntropy', 'OhemCrossEntropy', 'Dice', 'Contrastive','NegProtoSim','DistContrastive']
 
 
 def get_loss(loss_fn_name: str = 'CrossEntropy', cls_weights: Union[Tensor, None] = None):
-    available_loss_functions = ['CrossEntropy', 'BCEWithLogitsLoss', 'MSELoss', 'L1Loss', 'Contrastive','NegProtoSim']
+    available_loss_functions = ['CrossEntropy', 'BCEWithLogitsLoss', 'MSELoss', 'L1Loss', 'Contrastive','NegProtoSim','DistContrastive']
     
     assert loss_fn_name in available_loss_functions, f"Unavailable loss function name >> {loss_fn_name}.\nAvailable loss functions: {available_loss_functions}"
     
@@ -139,6 +177,8 @@ def get_loss(loss_fn_name: str = 'CrossEntropy', cls_weights: Union[Tensor, None
         return Contrastive()
     elif loss_fn_name == 'NegProtoSim':
         return NegProtoSim()
+    elif loss_fn_name =='DistContrastive':
+        return DistContrastive()
 
 
 if __name__ == '__main__':
