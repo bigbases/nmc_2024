@@ -49,7 +49,6 @@ def main(cfg, gpu, save_dir):
         sampler = DistributedSampler(episodic_dataset_train, dist.get_world_size(), dist.get_rank(), shuffle=True)
     else:
         sampler = None
-
     optimizer = get_optimizer(model, cfg['OPTIMIZER']['NAME'], cfg['OPTIMIZER']['LR'], cfg['OPTIMIZER']['WEIGHT_DECAY'])
     criterion_cls = get_loss(cfg['LOSS_CLS']['NAME'])
     criterion_dist_loss = get_loss('DistContrastive')
@@ -61,7 +60,7 @@ def main(cfg, gpu, save_dir):
     pbar = tqdm(total=num_episodes, desc=f"Episode: [{0}/{num_episodes}] Loss: {0:.8f}")
     
     print("Start Training ...")
-    epoch = 3
+    epoch = 5
     for _ in range(epoch):
         for episode_idx in range(num_episodes):
             model.train()
