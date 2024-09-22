@@ -49,10 +49,9 @@ def main(cfg, gpu, save_dir):
         sampler = DistributedSampler(episodic_dataset_train, dist.get_world_size(), dist.get_rank(), shuffle=True)
     else:
         sampler = None
-
     optimizer = get_optimizer(model, cfg['OPTIMIZER']['NAME'], cfg['OPTIMIZER']['LR'], cfg['OPTIMIZER']['WEIGHT_DECAY'])
     criterion_cls = get_loss(cfg['LOSS_CLS']['NAME'])
-    criterion_proto = get_loss('NegProtoSim')
+    criterion_dist_loss = get_loss('DistContrastive')
     
     scheduler = get_scheduler(sched_cfg['NAME'], optimizer, num_episodes, sched_cfg['POWER'], num_episodes * sched_cfg['WARMUP'], sched_cfg['WARMUP_RATIO'])
     scaler = GradScaler(enabled=train_cfg['AMP'])
@@ -61,7 +60,7 @@ def main(cfg, gpu, save_dir):
     pbar = tqdm(total=num_episodes, desc=f"Episode: [{0}/{num_episodes}] Loss: {0:.8f}")
     
     print("Start Training ...")
-    epoch = 10
+    epoch = 5
     for _ in range(epoch):
         for episode_idx in range(num_episodes):
             model.train()
@@ -77,7 +76,6 @@ def main(cfg, gpu, save_dir):
             
             #loss 추적
             class_losses = {f"class_{i}": 0 for i in range(support_y.size(1))}
-            neg_proto_losses = {f"neg_proto_{i}": 0 for i in range(support_y.size(1))}
             query_losses = {f"query_{i}": 0 for i in range(query_y.size(1))}
             
             
@@ -92,12 +90,12 @@ def main(cfg, gpu, save_dir):
                 support_y_t = support_y.t()
                 
                 #각 클래스별 loss 생성이 끝난 후 negative prototype을 만들어 각 임베딩별 loss 생성
-                negative_prototype = calculate_negative_prototypes(support_pred,support_y).detach()
+                #negative_prototype = calculate_negative_prototypes(support_pred,support_y).detach()
 
                 class_exists = (support_y.sum(dim=0) > 0)
                 for c in range(similarity_matrix.size(0)):
                     total_loss =0
-                    class_loss=0 
+                    class_loss=0
                     class_similarities = similarity_matrix[c]
                     class_labels = support_y_t[c]
                     
@@ -106,10 +104,10 @@ def main(cfg, gpu, save_dir):
                         total_loss += class_loss
                         class_losses[f"class_{c}"] = class_loss.item()
                         
-                    if negative_prototype is not None and class_exists[c]:
-                        neg_proto_loss = criterion_proto(support_pred[:,c,:],support_y[:,c],negative_prototype)
-                        total_loss += neg_proto_loss
-                        neg_proto_losses[f"neg_proto_{c}"] = neg_proto_loss.item()
+                    # if negative_prototype is not None and class_exists[c]:
+                    #     neg_proto_loss = criterion_proto(support_pred[:,c,:],support_y[:,c],negative_prototype)
+                    #     total_loss += neg_proto_loss
+                    #     neg_proto_losses[f"neg_proto_{c}"] = neg_proto_loss.item()
                     
                     # 역전파
                     # 계산에 참여한 head만 자동으로 계산됨(디버깅함)
@@ -126,20 +124,26 @@ def main(cfg, gpu, save_dir):
             optimizer.zero_grad(set_to_none=True)      
             
             with autocast(enabled=train_cfg['AMP']):
+                with torch.no_grad():
+                    support_pred = model(support_x)
+                    prototypes, pos_dist, neg_dist = compute_prototypes_dist(support_pred,support_y)
                 query_pred = model(query_x)
-                prototypes = compute_prototypes_multi_label(support_pred, support_y).detach()
                 
                 # prototypes shape : n_class , embedding_dim 
-                proto_sim = dot_product_similarity(query_pred,prototypes)  # (batch_size, num_classes)
-
-                for c in range(proto_sim.size(1)):
-                    class_proto_similarities = proto_sim[:,c,:]
-                    class_proto_labels = query_y[:,c]
-                    if class_proto_labels.sum() <1:
-                        continue
-                    class_proto_loss = criterion_cls(class_proto_similarities,class_proto_labels,query=True)
-                    query_losses[f"query_{c}"] = class_proto_loss.item()
-                    scaler.scale(class_proto_loss).backward(retain_graph=True)
+                distances = compute_query_dist(query_pred,prototypes)
+                # distances [batch,n_class]
+                
+                for c in range(query_pred.size(1)):  # 클래스 수만큼 반복
+                    total_loss =0
+                    query_class_loss =0
+                    if ~torch.isnan(pos_dist[c]):
+                        query_class_loss = criterion_dist_loss(distances[:,c],query_y[:,c],pos_dist[c],neg_dist[c])
+                        total_loss += query_class_loss
+                        query_losses[f"query_{c}"] = query_class_loss.item()
+                    # 현재 클래스에 대한 loss 계산
+                    if query_class_loss != 0:
+                        # 개별 클래스에 대한 backward 수행
+                        scaler.scale(total_loss).backward(retain_graph=True)
                     
             scaler.step(optimizer)
             scaler.update()
@@ -147,20 +151,32 @@ def main(cfg, gpu, save_dir):
             torch.cuda.synchronize()
             
             # Create a formatted string for the losses
-            loss_str = " ".join([f"{k}: {v:.4f}" for k, v in {**class_losses, **neg_proto_losses, **query_losses}.items()])
+            loss_str = " ".join([f"{k}: {v:.4f}" for k, v in {**class_losses, **query_losses}.items()])
 
             pbar.set_description(f"Episode: [{episode_idx+1}/{num_episodes}]")
             pbar.update(1)
             # 세로로 loss 출력
             print("\nLosses:")
-            all_losses = {**class_losses, **neg_proto_losses, **query_losses}
-            max_key_length = max(len(key) for key in all_losses.keys())
-            for key, value in all_losses.items():
-                print(f"{key.ljust(max_key_length)}: {value:.4f}")
+            num_classes = len(class_losses)
+            max_class_key_length = max(len(key) for key in class_losses.keys())
+            max_query_key_length = max(len(key) for key in query_losses.keys())
+            max_value_length = 8  # ".4f" 형식으로 출력할 때의 길이
+
+            print(f"{'Class'.ljust(max_class_key_length)} {'Value'.ljust(max_value_length)} {'Query'.ljust(max_query_key_length)} {'Value'}")
+            print("-" * (max_class_key_length + max_query_key_length + max_value_length * 2 + 3))
+
+            for i in range(num_classes):
+                class_key = f"class_{i}"
+                query_key = f"query_{i}"
+                class_value = class_losses.get(class_key, 0)
+                query_value = query_losses.get(query_key, 0)
+                
+                print(f"{class_key.ljust(max_class_key_length)} {f'{class_value:.4f}'.ljust(max_value_length)} {query_key.ljust(max_query_key_length)} {query_value:.4f}")
+
             print()  # 빈 줄 추가
             
             if (episode_idx + 1) % train_cfg['EVAL_INTERVAL'] == 0 or (episode_idx + 1) == num_episodes:
-                results, active_classes = evaluate_epi(model, episodic_dataset, negative_prototype, device, num_episodes=10)
+                results, active_classes = evaluate_epi(model, episodic_dataset, device, num_episodes=10)
                 mf1 = results['avg_f1']
                 
                 print(f"Accuracy: {results['accuracy']:.2f}%")

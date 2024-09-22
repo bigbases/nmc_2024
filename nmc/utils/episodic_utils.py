@@ -10,6 +10,52 @@ def dot_similarity(embeddings):
         similarity = F.cosine_similarity(embeddings.unsqueeze(2), embeddings.unsqueeze(1), dim=-1)
     
         return similarity
+    
+def compute_query_dist(query_pred, prototypes):
+    # query_pred: [batch_size, n_classes, embedding_dim]
+    # prototypes: [n_classes, embedding_dim]
+    distances = torch.norm(query_pred - prototypes.unsqueeze(0), dim=2)
+    
+    return distances
+
+
+def compute_prototypes_dist(embeddings, labels):
+    num_classes = labels.size(1)
+    batch_size, n_classes, embedding_dim = embeddings.shape
+    prototypes = []
+    intra_class_distances=[]
+    inter_class_distances=[]
+    for c in range(num_classes):
+        positive_mask = labels[:, c] > 0
+        negative_mask = labels[:, c] == 0
+
+        if positive_mask.sum() == 0:
+            dummy = torch.zeros(embedding_dim, device=embeddings.device)
+            prototypes.append(dummy)
+            intra_class_distances.append(torch.tensor(float('nan'), device=embeddings.device))
+            inter_class_distances.append(torch.tensor(float('nan'), device=embeddings.device))
+        else:
+            positive_embeddings = embeddings[positive_mask, c, :]
+            prototype = positive_embeddings.mean(dim=0)
+            prototypes.append(prototype)
+
+            # 클래스 내 거리 계산 (intra-class distance)
+            intra_dist = torch.norm(positive_embeddings - prototype, dim=1).mean()
+            intra_class_distances.append(intra_dist)
+
+            # 클래스 간 거리 계산 (inter-class distance)
+            if negative_mask.sum() > 0:
+                negative_embeddings = embeddings[negative_mask, c, :]
+                inter_dist = torch.norm(negative_embeddings - prototype, dim=1).mean()
+                inter_class_distances.append(inter_dist)
+            else:
+                inter_class_distances.append(torch.tensor(float('nan'), device=embeddings.device))
+    prototypes = torch.stack(prototypes)
+    intra_class_distances = torch.stack(intra_class_distances)
+    inter_class_distances = torch.stack(inter_class_distances)
+
+    return prototypes, intra_class_distances, inter_class_distances
+    
 
 # START ---------------Query 유사도 계산을 위한 함수 ---------------------------
 def compute_prototypes_multi_label(embeddings, labels):
