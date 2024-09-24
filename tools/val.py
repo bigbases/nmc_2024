@@ -97,25 +97,25 @@ def evaluate_epi(model, dataset, device, num_episodes=10):
     temp_model.eval()
     query_x = query_x.to(device)
     query_y = query_y.to(device)
-    
-    query_pred = temp_model(query_x)
-    prototypes, pos_dist, neg_dist = compute_prototypes_dist(support_pred,support_y)
-    distances = compute_query_dist(query_pred,prototypes)
-    
-    # pos_dist와 neg_dist의 중간값 계산
-    threshold = (pos_dist + neg_dist) / 2
-
-    # distances와 threshold 비교
-    predicted_labels = torch.zeros_like(distances)
-
-    for c in range(distances.size(1)):  # 각 클래스에 대해
-        class_threshold = threshold[c]
-        class_distances = distances[:, c]
+    with torch.no_grad():
+        query_pred = temp_model(query_x)
+        prototypes, intra_class_similarities, inter_class_similarities = compute_prototypes_dist(support_pred,support_y)
+        similarities  = compute_query_similarity(query_pred,prototypes)
         
-        # class_distances가 threshold보다 작으면(pos_dist에 가까우면) 1, 크면(neg_dist에 가까우면) 0
-        predicted_labels[:, c] = (class_distances < class_threshold).float()
-    
+        
+    temperature = 0.07
+    eps = 1e-8
 
+    predicted_labels = torch.zeros_like(query_y)
+
+    for c in range(similarities.size(1)):
+        # Compute dynamic threshold
+        threshold = (intra_class_similarities[c] + inter_class_similarities[c]) / 2
+        
+        # Compare similarities directly with threshold
+        predicted_labels[:, c] = (similarities[:, c] > threshold).float()
+
+    # Update metrics
     metrics.update(predicted_labels, query_y)
     active_support = torch.where(support_y.sum(dim=0) > 0)[0]
     active_classes = torch.where(query_y.sum(dim=0) > 0)[0]
