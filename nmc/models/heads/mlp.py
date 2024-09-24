@@ -31,14 +31,9 @@ class MLPMultiHead(nn.Module):
         self.norm = LayerNorm2d(num_features, eps=1e-5)
         
         self.head = nn.Sequential(
-            nn.Linear(num_features, num_embedding),
+            nn.Linear(num_features, num_features),
             nn.ReLU(),
-            nn.Dropout(drop_rate),
-            nn.Linear(num_embedding, num_embedding),
-            nn.ReLU(),
-            nn.Dropout(drop_rate),
-            nn.Linear(num_embedding, num_embedding)
-            # 마지막 레이어에서 활성 함수를 제거했습니다.
+            nn.Linear(num_features, num_embedding)
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

@@ -60,7 +60,7 @@ def main(cfg, gpu, save_dir):
     pbar = tqdm(total=num_episodes, desc=f"Episode: [{0}/{num_episodes}] Loss: {0:.8f}")
     
     print("Start Training ...")
-    epoch = 5
+    epoch = 3
     for _ in range(epoch):
         for episode_idx in range(num_episodes):
             model.train()
@@ -102,12 +102,8 @@ def main(cfg, gpu, save_dir):
                     if class_labels.sum() >= 2:  # skip if less than 2 samples for this class
                         class_loss = criterion_cls(class_similarities, class_labels) #contrastive loss
                         total_loss += class_loss
+                        print(total_loss)
                         class_losses[f"class_{c}"] = class_loss.item()
-                        
-                    # if negative_prototype is not None and class_exists[c]:
-                    #     neg_proto_loss = criterion_proto(support_pred[:,c,:],support_y[:,c],negative_prototype)
-                    #     total_loss += neg_proto_loss
-                    #     neg_proto_losses[f"neg_proto_{c}"] = neg_proto_loss.item()
                     
                     # 역전파
                     # 계산에 참여한 head만 자동으로 계산됨(디버깅함)
@@ -128,16 +124,11 @@ def main(cfg, gpu, save_dir):
                     support_pred = model(support_x)
                     prototypes, pos_dist, neg_dist = compute_prototypes_dist(support_pred,support_y)
                 query_pred = model(query_x)
-                
-                # prototypes shape : n_class , embedding_dim 
-                distances = compute_query_dist(query_pred,prototypes)
-                # distances [batch,n_class]
-                
                 for c in range(query_pred.size(1)):  # 클래스 수만큼 반복
                     total_loss =0
                     query_class_loss =0
                     if ~torch.isnan(pos_dist[c]):
-                        query_class_loss = criterion_dist_loss(distances[:,c],query_y[:,c],pos_dist[c],neg_dist[c])
+                        query_class_loss = criterion_dist_loss(query_pred[:,c,:],prototypes[c], query_y[:,c])
                         total_loss += query_class_loss
                         query_losses[f"query_{c}"] = query_class_loss.item()
                     # 현재 클래스에 대한 loss 계산
