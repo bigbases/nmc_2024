@@ -15,83 +15,80 @@ class NegProtoSim(nn.Module):
         
         neg_log_likelihood = -torch.log_softmax(-scaled_similarities, dim=0)
         return neg_log_likelihood.mean()
+
 class DistContrastive(nn.Module):
-    def __init__(self, scale_factor=10.0, device='cuda:1') -> None:
+    def __init__(self, temperature=0.07, margin=0.5, device='cuda:1') -> None:
         super().__init__()
-        self.scale_factor = scale_factor
-        self.bn = nn.BatchNorm1d(1).to(device)
+        self.temperature = temperature
+        self.margin = margin
         self.device = device
-    def forward(self, class_distances, class_labels, pos_margin=0.1, neg_margin=0.9):
-        # 거리 스케일 조정 및 배치 정규화 적용
-        class_distances = self.bn(class_distances.unsqueeze(1)).squeeze(1)
-        class_distances = self.scale_factor * class_distances
-        
-        # 거리를 유사도로 변환 (선택적)
-        # similarity = 1 / (1 + class_distances)
-        # class_distances = 1 - similarity  # 유사도가 높을수록 거리가 작아지도록
 
-        positive_mask = class_labels == 1
-        negative_mask = class_labels == 0
+    def forward(self, querys, prototypes, labels, eps=1e-8):
+        '''
+        querys : [batch, embedding]
+        prototypes : [embedding]
+        labels : [batch] 1 is class, 0 is not class
+        '''
+        # 차원 체크 (이전과 동일)
+        assert querys.dim() == 2, f"querys should be 2D, got shape {querys.shape}"
+        assert prototypes.dim() == 1, f"prototypes should be 1D, got shape {prototypes.shape}"
+        assert labels.dim() == 1, f"labels should be 1D, got shape {labels.shape}"
         
-        # L1 손실(절대값) 사용
-        positive_loss = F.relu(class_distances - pos_margin).abs() * positive_mask.float()
-        negative_loss = F.relu(neg_margin - class_distances).abs() * negative_mask.float()
-        
-        num_positives = positive_mask.sum()
-        num_negatives = negative_mask.sum()
-        
-        if num_positives > 0:
-            positive_loss = positive_loss.sum() / num_positives
-        else:
-            positive_loss = torch.tensor(0., device=class_distances.device)
-        
-        if num_negatives > 0:
-            negative_loss = negative_loss.sum() / num_negatives
-        else:
-            negative_loss = torch.tensor(0., device=class_distances.device)
-        
-        # 로그 스케일 사용 및 엡실론 추가
-        total_loss = torch.log1p(positive_loss + negative_loss + 1e-6)
-        
+        batch_size, embedding_dim = querys.shape
+        assert prototypes.shape == (embedding_dim,), f"prototypes shape mismatch. Expected {(embedding_dim,)}, got {prototypes.shape}"
+        assert labels.shape == (batch_size,), f"labels shape mismatch. Expected {(batch_size,)}, got {labels.shape}"
+
+        # 쿼리와 프로토타입 정규화
+        querys = F.normalize(querys, p=2, dim=1)
+        prototypes = F.normalize(prototypes, p=2, dim=0)
+
+        # 코사인 유사도 계산
+        cosine_sim = torch.matmul(querys, prototypes)  # [batch]
+
+        # 온도 스케일링 적용
+        logits = cosine_sim / self.temperature
+
+        # 양성과 음성 샘플 분리
+        positive_mask = labels == 1
+        negative_mask = labels == 0
+
+        # Compute normalized probabilities
+        exp_logits = torch.exp(logits)
+        sum_exp_logits = exp_logits.sum() + 1e-8
+
+        # Positive loss (attraction)
+        positive_probs = exp_logits[positive_mask] / sum_exp_logits
+        positive_loss = -torch.log(positive_probs + 1e-8).mean()
+
+        # Negative loss (repulsion with margin)
+        negative_probs = exp_logits[negative_mask] / sum_exp_logits
+        negative_loss = torch.clamp(negative_probs - self.margin, min=0).mean()
+        # Combine losses
+        total_loss = positive_loss + negative_loss
+
         return total_loss
+
 class Contrastive(nn.Module):
-    def __init__(self) -> None:
-        super().__init__()
-    def forward(self,similarities, labels, query = False, temperature=0.07, eps=1e-8):
-        # similarities : [batch,batch] 특정 class embedding의 similarity matrix
-        # labels : [batch] 특정 class embedding의 class 정보
-        
-        # temperature(T) scaling
-        similarities = similarities / temperature
-        # exp
-        exp_similarities = torch.exp(similarities)
-        
-        if query == False:
-            # class mask : [batch,batch]
-            labels = labels.contiguous().view(-1, 1)          
-            mask = torch.eq(labels, labels.T).float()
+       def __init__(self, margin=0.5):
+           super().__init__()
+           self.margin = margin
 
-            # Exclude self-similarity
-            logits_mask = torch.scatter(
-                torch.ones_like(mask),
-                1,
-                torch.arange(mask.shape[0]).view(-1, 1).to(mask.device),
-                0
-            )
-            pos_sim = (mask * exp_similarities * logits_mask)
-            pos_neg_sim = (logits_mask * exp_similarities).sum(1, keepdim=True)
-        else:
-            pos_sim = exp_similarities[torch.arange(exp_similarities.shape[0]),(1-labels).long()]
-            pos_neg_sim = exp_similarities.sum(dim=1)
-        
-        loss_matrix = -torch.log((pos_sim + eps)/(pos_neg_sim+ eps))
-        fit_mask = torch.isfinite(loss_matrix)
-        fit_matrix = torch.where(fit_mask, loss_matrix, torch.zeros_like(loss_matrix))
-        total_loss = fit_matrix.sum()
-        valid_count = fit_mask.sum()
+       def forward(self, similarities, labels, temperature=0.07):
+           similarities = similarities / temperature
+           
+           # Assuming binary labels: 0 and 1
+           pos_mask = labels.bool()
+           neg_mask = ~pos_mask
 
-        average_loss = total_loss / valid_count
-        return average_loss
+           # Separate positive and negative similarities
+           pos_sim = similarities[pos_mask]
+           neg_sim = similarities[neg_mask]
+
+           # Compute loss to maximize distance between positive and negative samples
+           loss = torch.mean(torch.clamp(self.margin - (pos_sim.unsqueeze(1) - neg_sim.unsqueeze(0)), min=0))
+
+           return loss
+
 
 class CrossEntropy(nn.Module):
     def __init__(self, weight: Tensor = None) -> None:
