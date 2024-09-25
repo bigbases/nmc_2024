@@ -59,6 +59,9 @@ def main(cfg, gpu, save_dir):
    
     pbar = tqdm(total=num_episodes, desc=f"Episode: [{0}/{num_episodes}] Loss: {0:.8f}")
     
+    #eval roc curve
+    adaptive_threshold = AdaptiveROCThreshold(episodic_dataset.n_classes, momentum=0.9)
+    
     print("Start Training ...")
     epoch = 3
     for _ in range(epoch):
@@ -102,7 +105,6 @@ def main(cfg, gpu, save_dir):
                     if class_labels.sum() >= 2:  # skip if less than 2 samples for this class
                         class_loss = criterion_cls(class_similarities, class_labels) #contrastive loss
                         total_loss += class_loss
-                        print(total_loss)
                         class_losses[f"class_{c}"] = class_loss.item()
                     
                     # 역전파
@@ -167,7 +169,7 @@ def main(cfg, gpu, save_dir):
             print()  # 빈 줄 추가
             
             if (episode_idx + 1) % train_cfg['EVAL_INTERVAL'] == 0 or (episode_idx + 1) == num_episodes:
-                results, active_classes = evaluate_epi(model, episodic_dataset, device, num_episodes=10)
+                results, active_classes = evaluate_epi(model, episodic_dataset, device, adaptive_threshold, num_episodes=10)
                 mf1 = results['avg_f1']
                 
                 print(f"Accuracy: {results['accuracy']:.2f}%")

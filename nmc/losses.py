@@ -15,10 +15,12 @@ class NegProtoSim(nn.Module):
         
         neg_log_likelihood = -torch.log_softmax(-scaled_similarities, dim=0)
         return neg_log_likelihood.mean()
+
 class DistContrastive(nn.Module):
-    def __init__(self, temperature=0.07, device='cuda:1') -> None:
+    def __init__(self, temperature=0.07, margin=0.5, device='cuda:1') -> None:
         super().__init__()
         self.temperature = temperature
+        self.margin = margin
         self.device = device
 
     def forward(self, querys, prototypes, labels, eps=1e-8):
@@ -27,7 +29,7 @@ class DistContrastive(nn.Module):
         prototypes : [embedding]
         labels : [batch] 1 is class, 0 is not class
         '''
-        # Check dimensions
+        # 차원 체크 (이전과 동일)
         assert querys.dim() == 2, f"querys should be 2D, got shape {querys.shape}"
         assert prototypes.dim() == 1, f"prototypes should be 1D, got shape {prototypes.shape}"
         assert labels.dim() == 1, f"labels should be 1D, got shape {labels.shape}"
@@ -36,155 +38,57 @@ class DistContrastive(nn.Module):
         assert prototypes.shape == (embedding_dim,), f"prototypes shape mismatch. Expected {(embedding_dim,)}, got {prototypes.shape}"
         assert labels.shape == (batch_size,), f"labels shape mismatch. Expected {(batch_size,)}, got {labels.shape}"
 
-        # Normalize querys and prototypes
+        # 쿼리와 프로토타입 정규화
         querys = F.normalize(querys, p=2, dim=1)
         prototypes = F.normalize(prototypes, p=2, dim=0)
 
-        # Compute cosine similarity
+        # 코사인 유사도 계산
         cosine_sim = torch.matmul(querys, prototypes)  # [batch]
 
-        # Apply temperature scaling
+        # 온도 스케일링 적용
         logits = cosine_sim / self.temperature
 
-        # Compute loss for each sample
+        # 양성과 음성 샘플 분리
         positive_mask = labels == 1
         negative_mask = labels == 0
 
-        # Apply log-sum-exp trick
-        max_logit = logits.max()
-        logits_stable = logits - max_logit
-        exp_logits = torch.exp(logits_stable)
-        
-        log_sum_exp = torch.log(exp_logits.sum() + eps) + max_logit
-        
-        positive_loss = -logits[positive_mask] + log_sum_exp
-        negative_loss = -torch.log(1 - torch.exp(logits[negative_mask] - log_sum_exp) + eps)
+        # Compute normalized probabilities
+        exp_logits = torch.exp(logits)
+        sum_exp_logits = exp_logits.sum() + 1e-8
 
+        # Positive loss (attraction)
+        positive_probs = exp_logits[positive_mask] / sum_exp_logits
+        positive_loss = -torch.log(positive_probs + 1e-8).mean()
+
+        # Negative loss (repulsion with margin)
+        negative_probs = exp_logits[negative_mask] / sum_exp_logits
+        negative_loss = torch.clamp(negative_probs - self.margin, min=0).mean()
         # Combine losses
-        loss = torch.zeros_like(logits)
-        loss[positive_mask] = positive_loss
-        loss[negative_mask] = negative_loss
-
-        # Handle potential numerical instabilities
-        loss = torch.where(torch.isfinite(loss), loss, torch.zeros_like(loss))
-        
-        # Clip loss to prevent any remaining instability
-        loss = torch.clamp(loss, min=0, max=50)
-
-        # Compute average loss
-        total_loss = loss.mean()
+        total_loss = positive_loss + negative_loss
 
         return total_loss
 
-    def info_nce_loss(self, features, labels, eps=1e-8):
-        '''
-        features : [batch, embedding]
-        labels : [batch] class indices
-        '''
-        batch_size = features.shape[0]
-        labels = labels.contiguous().view(-1, 1)
-        mask = torch.eq(labels, labels.T).float().to(self.device)
-
-        # Compute cosine similarity
-        features = F.normalize(features, dim=1)
-        similarity_matrix = torch.matmul(features, features.T)
-
-        # Discard the main diagonal from both: labels and similarities matrix
-        mask = mask.fill_diagonal_(0)
-        
-        # Select and combine multiple positives
-        positives = similarity_matrix[mask.bool()].view(batch_size, -1)
-
-        # Select only the negatives
-        negatives = similarity_matrix[~mask.bool()].view(batch_size, -1)
-
-        logits = torch.cat([positives, negatives], dim=1)
-        labels = torch.zeros(batch_size, dtype=torch.long, device=self.device)
-
-        logits = logits / self.temperature
-
-        # Apply log-sum-exp trick
-        max_logit = logits.max(dim=1, keepdim=True)[0]
-        logits_stable = logits - max_logit
-        exp_logits = torch.exp(logits_stable)
-        
-        log_sum_exp = torch.log(exp_logits.sum(dim=1, keepdim=True) + eps) + max_logit
-        
-        log_prob = logits_stable - log_sum_exp
-
-        # Compute cross entropy loss
-        loss = -log_prob[torch.arange(batch_size), labels]
-        
-        # Handle potential numerical instabilities
-        loss = torch.where(torch.isfinite(loss), loss, torch.zeros_like(loss))
-        
-        # Clip loss to prevent any remaining instability
-        loss = torch.clamp(loss, min=0, max=50)
-
-        return loss.mean()
-
-
 class Contrastive(nn.Module):
-    def __init__(self) -> None:
-        super().__init__()
+       def __init__(self, margin=0.5):
+           super().__init__()
+           self.margin = margin
 
-    def forward(self, similarities, labels, query=False, temperature=0.07, eps=1e-8):
-        # print(f"Similarities shape: {similarities.shape}")
-        # print(f"Similarities range: [{similarities.min().item():.4f}, {similarities.max().item():.4f}]")
-        # print(f"Labels shape: {labels.shape}")
-        # print(f"Unique labels: {torch.unique(labels)}")
+       def forward(self, similarities, labels, temperature=0.07):
+           similarities = similarities / temperature
+           
+           # Assuming binary labels: 0 and 1
+           pos_mask = labels.bool()
+           neg_mask = ~pos_mask
 
-        # Apply temperature scaling
-        similarities = similarities / temperature
+           # Separate positive and negative similarities
+           pos_sim = similarities[pos_mask]
+           neg_sim = similarities[neg_mask]
 
-        if not query:
-            labels = labels.contiguous().view(-1, 1)
-            mask = torch.eq(labels, labels.T).float()
+           # Compute loss to maximize distance between positive and negative samples
+           loss = torch.mean(torch.clamp(self.margin - (pos_sim.unsqueeze(1) - neg_sim.unsqueeze(0)), min=0))
 
-            # Exclude self-similarity
-            logits_mask = torch.scatter(
-                torch.ones_like(mask),
-                1,
-                torch.arange(mask.shape[0]).view(-1, 1).to(mask.device),
-                0
-            )
+           return loss
 
-            # Apply log-sum-exp trick for numerical stability
-            max_sim = torch.max(similarities, dim=1, keepdim=True)[0]
-            exp_similarities = torch.exp(similarities - max_sim)
-
-            # Compute positive similarities
-            pos_sim = torch.sum(exp_similarities * mask * logits_mask, dim=1)
-
-            # Compute denominator (all similarities except self-similarity)
-            denom_sim = torch.sum(exp_similarities * logits_mask, dim=1)
-
-            # print(f"Positive similarities range: [{pos_sim.min().item():.4f}, {pos_sim.max().item():.4f}]")
-            # print(f"Denominator similarities range: [{denom_sim.min().item():.4f}, {denom_sim.max().item():.4f}]")
-
-            # Compute loss
-            loss = -torch.log(pos_sim / (denom_sim + eps) + eps)
-        else:
-            # For query mode
-            exp_similarities = torch.exp(similarities)
-            pos_sim = exp_similarities[torch.arange(exp_similarities.shape[0]), (1-labels).long()]
-            denom_sim = torch.sum(exp_similarities, dim=1)
-
-            # print(f"Positive similarities range: [{pos_sim.min().item():.4f}, {pos_sim.max().item():.4f}]")
-            # print(f"Denominator similarities range: [{denom_sim.min().item():.4f}, {denom_sim.max().item():.4f}]")
-
-            # Compute loss
-            loss = -torch.log(pos_sim / (denom_sim + eps) + eps)
-
-        # Handle potential numerical instabilities
-        loss = torch.where(torch.isfinite(loss), loss, torch.zeros_like(loss))
-
-        average_loss = torch.mean(loss)
-        # print(f"Average loss: {average_loss.item():.4f}")
-
-        return average_loss
-    
-    
 
 class CrossEntropy(nn.Module):
     def __init__(self, weight: Tensor = None) -> None:

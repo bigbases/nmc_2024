@@ -79,10 +79,9 @@ def test_support_train(model, support_x, support_y, device):
     scaler.step(optimizer)
     scaler.update()
     
-    return support_pred, temp_model
-
+    return temp_model
 @torch.no_grad()
-def evaluate_epi(model, dataset, device, num_episodes=10):
+def evaluate_epi(model, dataset, device, adaptive_threshold, num_episodes=10):
     print('Evaluating...')
     #global_prototypes : n_class, pn, embeddings
     model.eval()
@@ -93,28 +92,35 @@ def evaluate_epi(model, dataset, device, num_episodes=10):
     support_x, support_y, query_x, query_y = dataset.create_episode(is_train=False)
     support_x, support_y = support_x.to(device), support_y.to(device)
     with torch.enable_grad():
-        support_pred, temp_model = test_support_train(model,support_x, support_y, device)
+        temp_model = test_support_train(model,support_x, support_y, device)
     temp_model.eval()
     query_x = query_x.to(device)
     query_y = query_y.to(device)
     with torch.no_grad():
+        support_pred = temp_model(support_x)
         query_pred = temp_model(query_x)
         prototypes, intra_class_similarities, inter_class_similarities = compute_prototypes_dist(support_pred,support_y)
-        similarities  = compute_query_similarity(query_pred,prototypes)
+        support_similarities = compute_query_similarity(support_pred, prototypes)
+        query_similarities  = compute_query_similarity(query_pred,prototypes)
         
         
-    temperature = 0.07
-    eps = 1e-8
+        adaptive_threshold.update(support_similarities.cpu().numpy(), support_y.cpu().numpy())
+        # Apply thresholds to query set
+        current_thresholds = torch.tensor(adaptive_threshold.get_thresholds()).to(device)
+        print(intra_class_similarities,inter_class_similarities)
+        print(current_thresholds)
+        print(query_similarities)
+        predicted_labels = (query_similarities > current_thresholds.unsqueeze(0)).float()
 
-    predicted_labels = torch.zeros_like(query_y)
+    # predicted_labels = torch.zeros_like(query_y)
 
-    for c in range(similarities.size(1)):
-        # Compute dynamic threshold
-        threshold = (intra_class_similarities[c] + inter_class_similarities[c]) / 2
+    # for c in range(similarities.size(1)):
+    #     # Compute dynamic threshold
+    #     threshold = (intra_class_similarities[c] + inter_class_similarities[c]) / 2
         
-        # Compare similarities directly with threshold
-        predicted_labels[:, c] = (similarities[:, c] > threshold).float()
-
+    #     # Compare similarities directly with threshold
+    #     predicted_labels[:, c] = (similarities[:, c] > threshold).float()
+    
     # Update metrics
     metrics.update(predicted_labels, query_y)
     active_support = torch.where(support_y.sum(dim=0) > 0)[0]

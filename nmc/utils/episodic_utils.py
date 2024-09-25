@@ -1,5 +1,25 @@
 import torch
 from torch.nn import functional as F
+import numpy as np
+from sklearn.metrics import roc_curve
+
+class AdaptiveROCThreshold:
+    def __init__(self, n_classes, momentum=0.9):
+        self.thresholds = np.zeros(n_classes)
+        self.momentum = momentum
+
+    def find_optimal_threshold(self, similarities, labels):
+        fpr, tpr, thresholds = roc_curve(labels, similarities)
+        optimal_idx = np.argmax(tpr - fpr)
+        return thresholds[optimal_idx]
+
+    def update(self, similarities, labels):
+        for c in range(similarities.shape[1]):
+            new_threshold = self.find_optimal_threshold(similarities[:, c], labels[:, c])
+            self.thresholds[c] = self.momentum * self.thresholds[c] + (1 - self.momentum) * new_threshold
+
+    def get_thresholds(self):
+        return self.thresholds
 
 
 def dot_similarity(embeddings, temperature=0.07, eps=1e-8):
@@ -90,7 +110,7 @@ def compute_prototypes_dist(embeddings, labels, temperature=0.07, eps=1e-8):
         positive_mask = labels[:, c] > 0
         negative_mask = labels[:, c] == 0
 
-        if positive_mask.sum() == 0:
+        if positive_mask.sum()  < 2 :
             dummy = torch.zeros(embedding_dim, device=embeddings.device)
             prototypes.append(dummy)
             intra_class_similarities.append(torch.tensor(float('nan'), device=embeddings.device))
