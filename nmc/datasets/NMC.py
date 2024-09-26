@@ -159,7 +159,10 @@ class EpisodicNMCDataset:
         non_minor_class_df = combined_df[~combined_df['label'].apply(lambda labels: bool(total & set(labels)))]
 
         # Train-test split
-        train_size = int(len(combined_df) * split_ratio)
+        if len(minor_class_df) == 0:
+            train_size = int(len(non_minor_class_df) * split_ratio)
+        else:
+            train_size = int(len(combined_df) * split_ratio)
         train_df = non_minor_class_df.sample(n=train_size, random_state=12) 
         remaining_non_minor_df = non_minor_class_df.drop(train_df.index)
 
