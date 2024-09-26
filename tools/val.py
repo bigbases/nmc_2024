@@ -54,6 +54,7 @@ def test_support_train(model, support_x, support_y, device):
     
     optimizer = torch.optim.AdamW(temp_model.parameters(), lr=0.001, weight_decay=0.01)
     criterion_cls = get_loss('Contrastive')
+    criterion_bce_cls = get_loss('BCEWithLogitsLoss')
     
     scaler = torch.cuda.amp.GradScaler()
     
@@ -74,21 +75,33 @@ def test_support_train(model, support_x, support_y, device):
                 total_loss += class_loss
             
             if class_loss is not 0:
-                scaler.scale(total_loss).backward(retain_graph=(c < similarity_matrix.size(0) - 1))
+                scaler.scale(total_loss).backward(retain_graph=True)
+    
+    scaler.step(optimizer)
+    scaler.update()
+    
+    ###################
+    optimizer.zero_grad(set_to_none=True)
+    support_pred = temp_model(support_x,True)
+    
+    head_loss = criterion_bce_cls(support_pred.squeeze(),support_y)
+    #scaler.scale(head_loss).backward()
+    for i in range(head_loss.size(1)):
+        if support_y[:,i].sum() !=0:
+            hl = head_loss[:, i].mean()  # i번째 헤드의 평균 손실
+            scaler.scale(hl).backward(retain_graph=True)
     
     scaler.step(optimizer)
     scaler.update()
     
     return temp_model
 @torch.no_grad()
-def evaluate_epi(model, dataset, device, adaptive_threshold, num_episodes=10):
+def evaluate_epi(model, dataset, device, num_episodes=10):
     print('Evaluating...')
     #global_prototypes : n_class, pn, embeddings
     model.eval()
     metrics = MultiLabelMetrics(dataset.n_classes, device=device)
 
-    # support train
-    # support_x, support_y, query_x, query_y = dataset.create_episode()
     support_x, support_y, query_x, query_y = dataset.create_episode(is_train=False)
     support_x, support_y = support_x.to(device), support_y.to(device)
     with torch.enable_grad():
@@ -96,33 +109,11 @@ def evaluate_epi(model, dataset, device, adaptive_threshold, num_episodes=10):
     temp_model.eval()
     query_x = query_x.to(device)
     query_y = query_y.to(device)
-    with torch.no_grad():
-        support_pred = temp_model(support_x)
-        query_pred = temp_model(query_x)
-        prototypes, intra_class_similarities, inter_class_similarities = compute_prototypes_dist(support_pred,support_y)
-        support_similarities = compute_query_similarity(support_pred, prototypes)
-        query_similarities  = compute_query_similarity(query_pred,prototypes)
-        
-        
-        adaptive_threshold.update(support_similarities.cpu().numpy(), support_y.cpu().numpy())
-        # Apply thresholds to query set
-        current_thresholds = torch.tensor(adaptive_threshold.get_thresholds()).to(device)
-        print(intra_class_similarities,inter_class_similarities)
-        print(current_thresholds)
-        print(query_similarities)
-        predicted_labels = (query_similarities > current_thresholds.unsqueeze(0)).float()
-
-    # predicted_labels = torch.zeros_like(query_y)
-
-    # for c in range(similarities.size(1)):
-    #     # Compute dynamic threshold
-    #     threshold = (intra_class_similarities[c] + inter_class_similarities[c]) / 2
-        
-    #     # Compare similarities directly with threshold
-    #     predicted_labels[:, c] = (similarities[:, c] > threshold).float()
     
+    query_pred = temp_model(query_x,True)
+
     # Update metrics
-    metrics.update(predicted_labels, query_y)
+    metrics.update(query_pred, query_y)
     active_support = torch.where(support_y.sum(dim=0) > 0)[0]
     active_classes = torch.where(query_y.sum(dim=0) > 0)[0]
     print('support:',active_support)
