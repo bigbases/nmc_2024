@@ -80,6 +80,10 @@ def test_support_train(model, support_x, support_y, device):
     scaler.step(optimizer)
     scaler.update()
     
+    for name, param in temp_model.named_parameters():
+        if 'classifier' not in name:
+            param.requires_grad = False
+    
     ###################
     optimizer.zero_grad(set_to_none=True)
     support_pred = temp_model(support_x,True)
@@ -96,14 +100,17 @@ def test_support_train(model, support_x, support_y, device):
     
     return temp_model
 @torch.no_grad()
-def evaluate_epi(model, dataset, device, num_episodes=10):
+def evaluate_epi(model, dataset, device, grad_state, num_episodes=10):
     print('Evaluating...')
-    #global_prototypes : n_class, pn, embeddings
-    model.eval()
+    #global_prototypes : n_class, pn, embeddings\
     metrics = MultiLabelMetrics(dataset.n_classes, device=device)
 
     support_x, support_y, query_x, query_y = dataset.create_episode(is_train=False)
     support_x, support_y = support_x.to(device), support_y.to(device)
+    
+    for name, param in model.named_parameters():
+                param.requires_grad = grad_state[name]
+    
     with torch.enable_grad():
         temp_model = test_support_train(model,support_x, support_y, device)
     temp_model.eval()
