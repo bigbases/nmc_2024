@@ -34,7 +34,7 @@ def main(cfg, gpu, save_dir):
     image_dir = Path(dataset_cfg['ROOT']) / 'train_images'
     transformations = get_train_augmentation(train_cfg['IMAGE_SIZE'])
     
-    episodic_dataset = eval(dataset_cfg['NAME'])(dataset_cfg['ROOT'], dataset_cfg['N_WAY'], dataset_cfg['K_SHOT'], dataset_cfg['Q_QUERY'], train_cfg['NUM_EPISODES'], dataset_cfg['SPLIT_RATIO'], dataset_cfg['MINOR_CLS'], transformations)
+    episodic_dataset = eval(dataset_cfg['NAME'])(dataset_cfg['ROOT'], dataset_cfg['N_WAY'], dataset_cfg['K_SHOT'], dataset_cfg['Q_QUERY'], train_cfg['NUM_EPISODES'], dataset_cfg['SPLIT_RATIO'], dataset_cfg['EX_CLS'], dataset_cfg['MINOR_CLS'], transformations)
     # print("Episodic dataset is generated")
 
     model = eval(cfg['MODEL']['NAME'])(cfg['MODEL']['BACKBONE'], episodic_dataset.n_classes)

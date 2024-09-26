@@ -123,7 +123,7 @@ class NMCDatasetSplit(Dataset):
         return image, torch.tensor(label_vector, dtype=torch.float32)
 
 class EpisodicNMCDataset:
-    def __init__(self, root_dir, n_way, k_shot, q_query, episodes, split_ratio=0.75, minor_cls=[4, 5], transform=None):
+    def __init__(self, root_dir, n_way, k_shot, q_query, episodes, split_ratio=0.75, ex_cls=[] ,minor_cls=[4, 5], transform=None):
         self.image_dir = root_dir
         self.transform = transform
         self.n_way = n_way
@@ -132,11 +132,13 @@ class EpisodicNMCDataset:
         self.split_ratio = split_ratio
         self.minor_cls = set(minor_cls)
         self.num_episodes = episodes
+        self.ex_cls = set(ex_cls)
         
         df_path = os.path.join(root_dir, 'nmc_combined.csv')
 
         combined_df = pd.read_csv(df_path).dropna()
-
+        total = self.minor_cls.union(self.ex_cls)
+        
         # Process labels to list format
         def process_label(x):
             if isinstance(x, str):
@@ -154,7 +156,7 @@ class EpisodicNMCDataset:
 
         # Separate minor and major classes
         minor_class_df = combined_df[combined_df['label'].apply(lambda labels: bool(self.minor_cls & set(labels)))]
-        non_minor_class_df = combined_df[~combined_df['label'].apply(lambda labels: bool(self.minor_cls & set(labels)))]
+        non_minor_class_df = combined_df[~combined_df['label'].apply(lambda labels: bool(total & set(labels)))]
 
         # Train-test split
         train_size = int(len(combined_df) * split_ratio)
