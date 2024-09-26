@@ -165,7 +165,7 @@ def get_loss(loss_fn_name: str = 'CrossEntropy', cls_weights: Union[Tensor, None
     if loss_fn_name == 'CrossEntropy':
         return CrossEntropy(weight=cls_weights)
     elif loss_fn_name == 'BCEWithLogitsLoss':
-        return nn.BCEWithLogitsLoss(weight=cls_weights)
+        return nn.BCEWithLogitsLoss(weight=cls_weights,reduction='none')
     elif loss_fn_name == 'MSELoss':
         return nn.MSELoss()
     elif loss_fn_name == 'L1Loss':

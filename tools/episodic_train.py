@@ -52,19 +52,20 @@ def main(cfg, gpu, save_dir):
     optimizer = get_optimizer(model, cfg['OPTIMIZER']['NAME'], cfg['OPTIMIZER']['LR'], cfg['OPTIMIZER']['WEIGHT_DECAY'])
     criterion_cls = get_loss(cfg['LOSS_CLS']['NAME'])
     criterion_dist_loss = get_loss('DistContrastive')
+    criterion_bce_cls = get_loss('BCEWithLogitsLoss')
     
     scheduler = get_scheduler(sched_cfg['NAME'], optimizer, num_episodes, sched_cfg['POWER'], num_episodes * sched_cfg['WARMUP'], sched_cfg['WARMUP_RATIO'])
     scaler = GradScaler(enabled=train_cfg['AMP'])
 
-   
-    pbar = tqdm(total=num_episodes, desc=f"Episode: [{0}/{num_episodes}] Loss: {0:.8f}")
+    epoch = 50
+    pbar = tqdm(total=num_episodes, desc=f"Epoch: [{0}/{epoch}]: Episode: [{0}/{num_episodes}]")
     
     #eval roc curve
-    adaptive_threshold = AdaptiveROCThreshold(episodic_dataset.n_classes, momentum=0.9)
+    # adaptive_threshold = AdaptiveROCThreshold(episodic_dataset.n_classes, momentum=0.9)
     
     print("Start Training ...")
-    epoch = 3
-    for _ in range(epoch):
+    
+    for e in range(epoch):
         for episode_idx in range(num_episodes):
             model.train()
             # print(f"Episode index: {episode_idx}")
@@ -78,10 +79,11 @@ def main(cfg, gpu, save_dir):
             query_x, query_y = query_x.to(device), query_y.to(device)
             
             #loss 추적
-            class_losses = {f"class_{i}": 0 for i in range(support_y.size(1))}
-            query_losses = {f"query_{i}": 0 for i in range(query_y.size(1))}
+            support_losses = {f"class_{i}": 0 for i in range(support_y.size(1))}
+            support_head_losses = {f"class_{i}": 0 for i in range(support_y.size(1))}
+            query_head_losses = {f"class_{i}": 0 for i in range(query_y.size(1))}
             
-            
+            '''
             optimizer.zero_grad(set_to_none=True)
             
             with autocast(enabled=train_cfg['AMP']):
@@ -105,71 +107,87 @@ def main(cfg, gpu, save_dir):
                     if class_labels.sum() >= 2:  # skip if less than 2 samples for this class
                         class_loss = criterion_cls(class_similarities, class_labels) #contrastive loss
                         total_loss += class_loss
-                        class_losses[f"class_{c}"] = class_loss.item()
+                        support_losses[f"class_{c}"] = class_loss.item()
                     
                     # 역전파
                     # 계산에 참여한 head만 자동으로 계산됨(디버깅함)
                     # retain_traph를 통해 batch단위 loss 역전파동안 계산그래프 유지
                     if class_loss is not 0:
-                        scaler.scale(total_loss).backward(retain_graph=True)
-                    
+                        scaler.scale(total_loss).backward(retain_graph=True)    
+                
             # opt step은 한번만
             scaler.step(optimizer)
             scaler.update()
-            scheduler.step()
             torch.cuda.synchronize()
-            
-            optimizer.zero_grad(set_to_none=True)      
-            
+            '''
+            ############ head 학습 ############
+            optimizer.zero_grad(set_to_none=True)
             with autocast(enabled=train_cfg['AMP']):
-                with torch.no_grad():
-                    support_pred = model(support_x)
-                    prototypes, pos_dist, neg_dist = compute_prototypes_dist(support_pred,support_y)
-                query_pred = model(query_x)
-                for c in range(query_pred.size(1)):  # 클래스 수만큼 반복
-                    total_loss =0
-                    query_class_loss =0
-                    if ~torch.isnan(pos_dist[c]):
-                        query_class_loss = criterion_dist_loss(query_pred[:,c,:],prototypes[c], query_y[:,c])
-                        total_loss += query_class_loss
-                        query_losses[f"query_{c}"] = query_class_loss.item()
-                    # 현재 클래스에 대한 loss 계산
-                    if query_class_loss != 0:
-                        # 개별 클래스에 대한 backward 수행
-                        scaler.scale(total_loss).backward(retain_graph=True)
-                    
+                support_pred = model(support_x,True)
+                head_loss = criterion_bce_cls(support_pred.squeeze(),support_y)
+                #scaler.scale(head_loss).backward()
+                for i in range(episodic_dataset.n_classes):
+                    if support_y[:,i].sum() !=0:
+                        hl = head_loss[:, i].mean()  # i번째 헤드의 평균 손실
+                        scaler.scale(hl).backward(retain_graph=True)
+                        support_head_losses[f"class_{i}"] = hl.item()
+        
+            scaler.step(optimizer)
+            scaler.update()
+            torch.cuda.synchronize()
+            ############ ######### ############
+            
+            optimizer.zero_grad(set_to_none=True)
+            with autocast(enabled=train_cfg['AMP']):
+                query_pred = model(query_x,True)
+                head_loss = criterion_bce_cls(query_pred.squeeze(),query_y)
+                #scaler.scale(head_loss).backward()
+                for i in range(episodic_dataset.n_classes):
+                    if support_y[:,i].sum() !=0:
+                        hl = head_loss[:, i].mean()  # i번째 헤드의 평균 손실
+                        scaler.scale(hl).backward(retain_graph=True)
+                        query_head_losses[f"class_{i}"] = hl.item()
+        
             scaler.step(optimizer)
             scaler.update()
             scheduler.step()
             torch.cuda.synchronize()
             
-            # Create a formatted string for the losses
-            loss_str = " ".join([f"{k}: {v:.4f}" for k, v in {**class_losses, **query_losses}.items()])
+            loss_str = " ".join([f"{k}: {v:.4f}" for k, v in {**support_losses, **support_head_losses, **query_head_losses}.items()])
 
-            pbar.set_description(f"Episode: [{episode_idx+1}/{num_episodes}]")
+            pbar.set_description(f"Epoch: [{e+1}/{epoch}] Episode: [{episode_idx+1}/{num_episodes}]")
             pbar.update(1)
-            # 세로로 loss 출력
-            print("\nLosses:")
-            num_classes = len(class_losses)
-            max_class_key_length = max(len(key) for key in class_losses.keys())
-            max_query_key_length = max(len(key) for key in query_losses.keys())
-            max_value_length = 8  # ".4f" 형식으로 출력할 때의 길이
 
-            print(f"{'Class'.ljust(max_class_key_length)} {'Value'.ljust(max_value_length)} {'Query'.ljust(max_query_key_length)} {'Value'}")
-            print("-" * (max_class_key_length + max_query_key_length + max_value_length * 2 + 3))
+            # # 세로로 loss 출력
+            # print("\nLosses:")
+            # num_classes = len(support_losses)
+            # max_class_key_length = max(len(key) for key in support_losses.keys())
+            # max_support_key_length = max(len(key) for key in support_head_losses.keys())
+            # max_query_key_length = max(len(key) for key in query_head_losses.keys())
+            # max_value_length = 8  # ".4f" 형식으로 출력할 때의 길이
 
-            for i in range(num_classes):
-                class_key = f"class_{i}"
-                query_key = f"query_{i}"
-                class_value = class_losses.get(class_key, 0)
-                query_value = query_losses.get(query_key, 0)
+            # print(f"{'support'.ljust(max_class_key_length)} {'Value'.ljust(max_value_length)} " 
+            #     f"{'Support Head'.ljust(max_support_key_length)} {'Value'.ljust(max_value_length)} "
+            #     f"{'Query Head'.ljust(max_query_key_length)} {'Value'}")
+            # print("-" * (max_class_key_length + max_support_key_length + max_query_key_length + max_value_length * 3 + 6))
+
+            # for i in range(max(num_classes, len(support_head_losses), len(query_head_losses))):
+            #     class_key = list(support_losses.keys())[i] if i < num_classes else ""
+            #     class_value = f"{support_losses[class_key]:.4f}" if class_key else ""
                 
-                print(f"{class_key.ljust(max_class_key_length)} {f'{class_value:.4f}'.ljust(max_value_length)} {query_key.ljust(max_query_key_length)} {query_value:.4f}")
-
-            print()  # 빈 줄 추가
+            #     support_head_key = list(support_head_losses.keys())[i] if i < len(support_head_losses) else ""
+            #     support_head_value = f"{support_head_losses[support_head_key]:.4f}" if support_head_key else ""
+                
+            #     query_head_key = list(query_head_losses.keys())[i] if i < len(query_head_losses) else ""
+            #     query_head_value = f"{query_head_losses[query_head_key]:.4f}" if query_head_key else ""
+                
+            #     print(f"{class_key.ljust(max_class_key_length)} {class_value.ljust(max_value_length)} "
+            #         f"{support_head_key.ljust(max_support_key_length)} {support_head_value.ljust(max_value_length)} "
+            #         f"{query_head_key.ljust(max_query_key_length)} {query_head_value}")
+            # print()  # 빈 줄 추가
             
             if (episode_idx + 1) % train_cfg['EVAL_INTERVAL'] == 0 or (episode_idx + 1) == num_episodes:
-                results, active_classes = evaluate_epi(model, episodic_dataset, device, adaptive_threshold, num_episodes=10)
+                results, active_classes = evaluate_epi(model, episodic_dataset, device, num_episodes=10)
                 mf1 = results['avg_f1']
                 
                 print(f"Accuracy: {results['accuracy']:.2f}%")

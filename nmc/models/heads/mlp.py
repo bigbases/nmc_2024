@@ -35,12 +35,22 @@ class MLPMultiHead(nn.Module):
             nn.ReLU(),
             nn.Linear(num_features, num_embedding)
         )
+        
+        self.classifier = nn.Sequential(
+            nn.Linear(num_embedding, 64),
+            nn.ReLU(),
+            nn.Dropout(drop_rate),
+            nn.Linear(64, 1)
+        )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, head = False) -> torch.Tensor:
         x = self.norm(x)
         x = self.global_pool(x)
         
         x = self.head(x)
+        
+        if head==True:
+            x = self.classifier(x)
         
         return x
     

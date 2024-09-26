@@ -16,10 +16,10 @@ class FGMaxxVit_Multi(BaseModel):
             
         self.apply(self._init_weights)
         
-    def forward(self,x: Tensor):
+    def forward(self,x: Tensor, Flag = False):
         y = self.backbone(x)
         # y.shape = [batch,768]
-        outputs = torch.stack([head(y) for head in self.head], dim=1)  
+        outputs = torch.stack([head(y,Flag) for head in self.head], dim=1)  
         # [batch, num_classes, 256]
         
         
