@@ -63,6 +63,11 @@ def main(cfg, gpu, save_dir):
     #eval roc curve
     # adaptive_threshold = AdaptiveROCThreshold(episodic_dataset.n_classes, momentum=0.9)
     
+    #required_grad 저장
+    grad_state = {}
+    for name, param in model.named_parameters():
+        grad_state[name] = param.requires_grad
+    
     print("Start Training ...")
     
     for e in range(epoch):
@@ -83,7 +88,9 @@ def main(cfg, gpu, save_dir):
             support_head_losses = {f"class_{i}": 0 for i in range(support_y.size(1))}
             query_head_losses = {f"class_{i}": 0 for i in range(query_y.size(1))}
             
-            '''
+            for name, param in model.named_parameters():
+                param.requires_grad = grad_state[name]
+            
             optimizer.zero_grad(set_to_none=True)
             
             with autocast(enabled=train_cfg['AMP']):
@@ -119,7 +126,11 @@ def main(cfg, gpu, save_dir):
             scaler.step(optimizer)
             scaler.update()
             torch.cuda.synchronize()
-            '''
+            
+            for name, param in model.named_parameters():
+                if 'classifier' not in name:
+                    param.requires_grad = False
+            
             ############ head 학습 ############
             optimizer.zero_grad(set_to_none=True)
             with autocast(enabled=train_cfg['AMP']):
@@ -187,7 +198,7 @@ def main(cfg, gpu, save_dir):
             # print()  # 빈 줄 추가
             
             if (episode_idx + 1) % train_cfg['EVAL_INTERVAL'] == 0 or (episode_idx + 1) == num_episodes:
-                results, active_classes = evaluate_epi(model, episodic_dataset, device, num_episodes=10)
+                results, active_classes = evaluate_epi(model, episodic_dataset, device, grad_state, num_episodes=10)
                 mf1 = results['avg_f1']
                 
                 print(f"Accuracy: {results['accuracy']:.2f}%")

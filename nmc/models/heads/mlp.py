@@ -37,10 +37,10 @@ class MLPMultiHead(nn.Module):
         )
         
         self.classifier = nn.Sequential(
-            nn.Linear(num_embedding, 64),
-            nn.ReLU(),
+            # nn.Linear(num_embedding, 64),
+            # nn.ReLU(),
             nn.Dropout(drop_rate),
-            nn.Linear(64, 1)
+            nn.Linear(num_embedding, 1)
         )
 
     def forward(self, x: torch.Tensor, head = False) -> torch.Tensor:

@@ -69,25 +69,34 @@ class DistContrastive(nn.Module):
         return total_loss
 
 class Contrastive(nn.Module):
-       def __init__(self, margin=0.5):
-           super().__init__()
-           self.margin = margin
+        def __init__(self, temperature=0.07):
+            super().__init__()
+            self.temperature = temperature
 
-       def forward(self, similarities, labels, temperature=0.07):
-           similarities = similarities / temperature
-           
-           # Assuming binary labels: 0 and 1
-           pos_mask = labels.bool()
-           neg_mask = ~pos_mask
+        def forward(self, similarities, labels):
+            device = similarities.device
+            batch_size = similarities.shape[0]
 
-           # Separate positive and negative similarities
-           pos_sim = similarities[pos_mask]
-           neg_sim = similarities[neg_mask]
+            # Create a mask for positive pairs
+            pos_mask = (labels.unsqueeze(0) == labels.unsqueeze(1)).float().to(device)
+            
+            # Remove self-similarities from positive mask
+            pos_mask.fill_diagonal_(0)
+            
+            # For numerical stability
+            logits = similarities / self.temperature
+            
+            # Compute log_prob
+            exp_logits = torch.exp(logits)
+            log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True))
+            
+            # Compute mean of log-likelihood over positive pairs
+            mean_log_prob_pos = (pos_mask * log_prob).sum(1) / pos_mask.sum(1)
+            
+            # Loss
+            loss = -mean_log_prob_pos.mean()
 
-           # Compute loss to maximize distance between positive and negative samples
-           loss = torch.mean(torch.clamp(self.margin - (pos_sim.unsqueeze(1) - neg_sim.unsqueeze(0)), min=0))
-
-           return loss
+            return loss
 
 
 class CrossEntropy(nn.Module):
