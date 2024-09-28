@@ -63,6 +63,11 @@ def main(cfg, gpu, save_dir):
     #eval roc curve
     # adaptive_threshold = AdaptiveROCThreshold(episodic_dataset.n_classes, momentum=0.9)
     
+    # backbone 제어
+    for name, param in model.named_parameters():
+        if 'backbone' in name:
+            param.requires_grad = False
+    
     #required_grad 저장
     grad_state = {}
     for name, param in model.named_parameters():
