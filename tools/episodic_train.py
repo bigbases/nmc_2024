@@ -64,9 +64,9 @@ def main(cfg, gpu, save_dir):
     # adaptive_threshold = AdaptiveROCThreshold(episodic_dataset.n_classes, momentum=0.9)
     
     # backbone 제어
-    for name, param in model.named_parameters():
-        if 'backbone' in name:
-            param.requires_grad = False
+    # for name, param in model.named_parameters():
+    #     if 'backbone' in name:
+    #         param.requires_grad = False
     
     #required_grad 저장
     grad_state = {}
@@ -125,7 +125,7 @@ def main(cfg, gpu, save_dir):
                     # 계산에 참여한 head만 자동으로 계산됨(디버깅함)
                     # retain_traph를 통해 batch단위 loss 역전파동안 계산그래프 유지
                     if class_loss is not 0:
-                        scaler.scale(total_loss).backward(retain_graph=True)    
+                        scaler.scale(total_loss/(episodic_dataset.n_classes-2)).backward(retain_graph=True)    
                 
             # opt step은 한번만
             scaler.step(optimizer)
@@ -145,7 +145,7 @@ def main(cfg, gpu, save_dir):
                 for i in range(episodic_dataset.n_classes):
                     if support_y[:,i].sum() !=0:
                         hl = head_loss[:, i].mean()  # i번째 헤드의 평균 손실
-                        scaler.scale(hl).backward(retain_graph=True)
+                        scaler.scale(hl/(episodic_dataset.n_classes-2)).backward(retain_graph=True)
                         support_head_losses[f"class_{i}"] = hl.item()
         
             scaler.step(optimizer)
@@ -161,7 +161,7 @@ def main(cfg, gpu, save_dir):
                 for i in range(episodic_dataset.n_classes):
                     if support_y[:,i].sum() !=0:
                         hl = head_loss[:, i].mean()  # i번째 헤드의 평균 손실
-                        scaler.scale(hl).backward(retain_graph=True)
+                        scaler.scale(hl/(episodic_dataset.n_classes-2)).backward(retain_graph=True)
                         query_head_losses[f"class_{i}"] = hl.item()
         
             scaler.step(optimizer)

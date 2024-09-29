@@ -93,7 +93,7 @@ def test_support_train(model, support_x, support_y, device):
     for i in range(head_loss.size(1)):
         if support_y[:,i].sum() !=0:
             hl = head_loss[:, i].mean()  # i번째 헤드의 평균 손실
-            scaler.scale(hl).backward(retain_graph=True)
+            scaler.scale(hl/(head_loss.size(1))).backward(retain_graph=True)
     
     scaler.step(optimizer)
     scaler.update()
