@@ -57,7 +57,7 @@ def test_support_train(model, support_x, support_y, device):
     criterion_bce_cls = get_loss('BCEWithLogitsLoss')
     
     scaler = torch.cuda.amp.GradScaler()
-    
+    """
     with torch.cuda.amp.autocast():
         support_pred = temp_model(support_x)
         similarity_matrix = dot_similarity(support_pred)
@@ -79,10 +79,10 @@ def test_support_train(model, support_x, support_y, device):
     
     scaler.step(optimizer)
     scaler.update()
-    
-    for name, param in temp_model.named_parameters():
-        if 'classifier' not in name:
-            param.requires_grad = False
+    """
+    # for name, param in temp_model.named_parameters():
+    #     if 'head' not in name:
+    #         param.requires_grad = False
     
     ###################
     optimizer.zero_grad(set_to_none=True)
@@ -93,7 +93,7 @@ def test_support_train(model, support_x, support_y, device):
     for i in range(head_loss.size(1)):
         if support_y[:,i].sum() !=0:
             hl = head_loss[:, i].mean()  # i번째 헤드의 평균 손실
-            scaler.scale(hl/(head_loss.size(1))).backward(retain_graph=True)
+            scaler.scale(hl).backward(retain_graph=True)
     
     scaler.step(optimizer)
     scaler.update()
