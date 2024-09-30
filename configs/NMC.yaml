@@ -2,8 +2,8 @@ DEVICE          : cuda:2            # device used for training and evaluation (c
 SAVE_DIR        : 'output'         # output folder name used for saving the model, logs and inference results
 
 MODEL:                                    
-  NAME          : FGMaxxVit                                    # name of the model you are using
-  BACKBONE      : FGMaxxVit                                                  # model variant
+  NAME          : FGMaxxVit                                    # name of the model you are using #[ResNet50Model, FGMaxxVit]
+  BACKBONE      : FGMaxxVit                                                  # model variant #[ResNet-50, FGMaxxVit]
   PRETRAINED    : 'checkpoints/pretrained/maxvit_base_tf_512.in1k_pretrained_weights.pth'              # backbone model's weight 
   UNFREEZE      : 'full'                     # Freeze all layers without UNFREEZE ['encoder.stages.0', 'encoder.stages.1', 'encoder.stages.2', 'encoder.stages.3', None, 'full']
   VERSION : 'ImageNet_APTOS_1024'
