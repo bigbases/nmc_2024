@@ -63,6 +63,11 @@ def main(cfg, gpu, save_dir):
     #eval roc curve
     # adaptive_threshold = AdaptiveROCThreshold(episodic_dataset.n_classes, momentum=0.9)
     
+    # backbone 제어
+    for name, param in model.named_parameters():
+        if 'backbone' in name:
+            param.requires_grad = False
+    
     #required_grad 저장
     grad_state = {}
     for name, param in model.named_parameters():
@@ -90,7 +95,7 @@ def main(cfg, gpu, save_dir):
             
             for name, param in model.named_parameters():
                 param.requires_grad = grad_state[name]
-            
+            """
             optimizer.zero_grad(set_to_none=True)
             
             with autocast(enabled=train_cfg['AMP']):
@@ -114,22 +119,22 @@ def main(cfg, gpu, save_dir):
                     if class_labels.sum() >= 2:  # skip if less than 2 samples for this class
                         class_loss = criterion_cls(class_similarities, class_labels) #contrastive loss
                         total_loss += class_loss
-                        support_losses[f"class_{c}"] = class_loss.item()
+                        
                     
                     # 역전파
                     # 계산에 참여한 head만 자동으로 계산됨(디버깅함)
                     # retain_traph를 통해 batch단위 loss 역전파동안 계산그래프 유지
                     if class_loss is not 0:
                         scaler.scale(total_loss).backward(retain_graph=True)    
-                
+                        support_losses[f"class_{c}"] = total_loss.item()
             # opt step은 한번만
             scaler.step(optimizer)
             scaler.update()
             torch.cuda.synchronize()
-            
-            for name, param in model.named_parameters():
-                if 'classifier' not in name:
-                    param.requires_grad = False
+            """
+            # for name, param in model.named_parameters():
+            #     if 'head' not in name:
+            #         param.requires_grad = False
             
             ############ head 학습 ############
             optimizer.zero_grad(set_to_none=True)
@@ -169,33 +174,34 @@ def main(cfg, gpu, save_dir):
             pbar.set_description(f"Epoch: [{e+1}/{epoch}] Episode: [{episode_idx+1}/{num_episodes}]")
             pbar.update(1)
 
-            # # 세로로 loss 출력
-            # print("\nLosses:")
-            # num_classes = len(support_losses)
-            # max_class_key_length = max(len(key) for key in support_losses.keys())
-            # max_support_key_length = max(len(key) for key in support_head_losses.keys())
-            # max_query_key_length = max(len(key) for key in query_head_losses.keys())
-            # max_value_length = 8  # ".4f" 형식으로 출력할 때의 길이
+            if (episode_idx + 1) % (train_cfg['EVAL_INTERVAL']/3) == 0 or (episode_idx + 1) == num_episodes:
+                # 세로로 loss 출력
+                print("\nLosses:")
+                num_classes = len(support_losses)
+                max_class_key_length = max(len(key) for key in support_losses.keys())
+                max_support_key_length = max(len(key) for key in support_head_losses.keys())
+                max_query_key_length = max(len(key) for key in query_head_losses.keys())
+                max_value_length = 8  # ".4f" 형식으로 출력할 때의 길이
 
-            # print(f"{'support'.ljust(max_class_key_length)} {'Value'.ljust(max_value_length)} " 
-            #     f"{'Support Head'.ljust(max_support_key_length)} {'Value'.ljust(max_value_length)} "
-            #     f"{'Query Head'.ljust(max_query_key_length)} {'Value'}")
-            # print("-" * (max_class_key_length + max_support_key_length + max_query_key_length + max_value_length * 3 + 6))
+                print(f"{'support'.ljust(max_class_key_length)} {'Value'.ljust(max_value_length)} " 
+                    f"{'Support Head'.ljust(max_support_key_length)} {'Value'.ljust(max_value_length)} "
+                    f"{'Query Head'.ljust(max_query_key_length)} {'Value'}")
+                print("-" * (max_class_key_length + max_support_key_length + max_query_key_length + max_value_length * 3 + 6))
 
-            # for i in range(max(num_classes, len(support_head_losses), len(query_head_losses))):
-            #     class_key = list(support_losses.keys())[i] if i < num_classes else ""
-            #     class_value = f"{support_losses[class_key]:.4f}" if class_key else ""
-                
-            #     support_head_key = list(support_head_losses.keys())[i] if i < len(support_head_losses) else ""
-            #     support_head_value = f"{support_head_losses[support_head_key]:.4f}" if support_head_key else ""
-                
-            #     query_head_key = list(query_head_losses.keys())[i] if i < len(query_head_losses) else ""
-            #     query_head_value = f"{query_head_losses[query_head_key]:.4f}" if query_head_key else ""
-                
-            #     print(f"{class_key.ljust(max_class_key_length)} {class_value.ljust(max_value_length)} "
-            #         f"{support_head_key.ljust(max_support_key_length)} {support_head_value.ljust(max_value_length)} "
-            #         f"{query_head_key.ljust(max_query_key_length)} {query_head_value}")
-            # print()  # 빈 줄 추가
+                for i in range(max(num_classes, len(support_head_losses), len(query_head_losses))):
+                    class_key = list(support_losses.keys())[i] if i < num_classes else ""
+                    class_value = f"{support_losses[class_key]:.4f}" if class_key else ""
+                    
+                    support_head_key = list(support_head_losses.keys())[i] if i < len(support_head_losses) else ""
+                    support_head_value = f"{support_head_losses[support_head_key]:.4f}" if support_head_key else ""
+                    
+                    query_head_key = list(query_head_losses.keys())[i] if i < len(query_head_losses) else ""
+                    query_head_value = f"{query_head_losses[query_head_key]:.4f}" if query_head_key else ""
+                    
+                    print(f"{class_key.ljust(max_class_key_length)} {class_value.ljust(max_value_length)} "
+                        f"{support_head_key.ljust(max_support_key_length)} {support_head_value.ljust(max_value_length)} "
+                        f"{query_head_key.ljust(max_query_key_length)} {query_head_value}")
+                print()  # 빈 줄 추가
             
             if (episode_idx + 1) % train_cfg['EVAL_INTERVAL'] == 0 or (episode_idx + 1) == num_episodes:
                 results, active_classes = evaluate_epi(model, episodic_dataset, device, grad_state, num_episodes=10)
