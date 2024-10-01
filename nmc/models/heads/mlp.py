@@ -54,6 +54,17 @@ class MLPMultiHead(nn.Module):
         
         return x
     
+class Head(nn.Module):
+    def __init__(self, in_features: int = 2048, num_classes: int = 11):
+        super(Head, self).__init__()
+        self.global_avg_pool = nn.AdaptiveAvgPool2d(1)  # Output: [batch_size, in_features, 1, 1]
+        self.fc = nn.Linear(in_features, num_classes)
+
+    def forward(self, x: Tensor) -> Tensor:
+        x = self.global_avg_pool(x)
+        x = torch.flatten(x, 1)
+        x = self.fc(x)
+        return x
     
 if __name__ == '__main__':
     import torch
