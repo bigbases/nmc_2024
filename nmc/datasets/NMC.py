@@ -12,7 +12,9 @@ from skmultilearn.model_selection import iterative_train_test_split
 
 class NMCDataset(Dataset):
     def __init__(self, image_dir, train_ratio=0.7, valid_ratio=0.15, test_ratio=0.15, transform=None):
-        print(image_dir)        
+        print(image_dir)
+        self.CLASSES = [0,1,2,3,4,5,8,9,10]
+        self.n_classes = len(self.CLASSES)
         
         # Assuming combined CSV file path
         df_path = image_dir.replace('combined_images', 'nmc_combined.csv')
@@ -36,7 +38,7 @@ class NMCDataset(Dataset):
         self.dataframe['label'] = self.dataframe['label'].apply(filter_labels)
         
         # Initialize the MultiLabelBinarizer and fit_transform the label column
-        self.mlb = MultiLabelBinarizer(classes=[i for i in range(11)])
+        self.mlb = MultiLabelBinarizer(classes=[i for i in range(self.n_classes)])
         labels = self.mlb.fit_transform(self.dataframe['label'])
 
         # Perform iterative stratified split for train (70%) and remaining (30%)
@@ -65,8 +67,7 @@ class NMCDataset(Dataset):
         self.val_data = (val_df, y_val)
         self.test_data = (test_df, y_test)
 
-        self.CLASSES = [0,1,2,3,4,5,6,7,8,9,10]
-        self.n_classes = len(self.CLASSES)
+
         self.image_dir = image_dir
         self.transform = transform
         
