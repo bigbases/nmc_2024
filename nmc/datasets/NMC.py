@@ -13,7 +13,7 @@ from skmultilearn.model_selection import iterative_train_test_split
 class NMCDataset(Dataset):
     def __init__(self, image_dir, train_ratio=0.7, valid_ratio=0.15, test_ratio=0.15, transform=None):
         print(image_dir)
-        self.CLASSES = [0,1,2,3,4,5,8,9,10]
+        self.CLASSES = [0,1,2,3,4,5,6,7,8,9,10]
         self.n_classes = len(self.CLASSES)
         
         # Assuming combined CSV file path
