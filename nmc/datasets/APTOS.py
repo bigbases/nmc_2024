@@ -15,7 +15,7 @@ class APTOSDataset(Dataset):
         self.n_classes = len(self.CLASSES)
 
         # Assuming combined CSV file path
-        df_path = image_dir.replace('combined_images', 'cropped_combined.csv')
+        df_path = image_dir.replace('combined_images', 'combined.csv')
         
         # Read the combined CSV file
         self.dataframe = pd.read_csv(df_path)

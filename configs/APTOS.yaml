@@ -10,7 +10,7 @@ MODEL:
 
 DATASET:
   NAME          : APTOSDataset                                          # dataset name to be trained with (camvid, cityscapes, ade20k)
-  ROOT          : '/data/public_data/cropped_image'                         # dataset root path
+  ROOT          : '/data/public_data/aptos'                         # dataset root path
   #IGNORE_LABEL  : -1
   TRAIN_RATIO   : 0.7
   VALID_RATIO   : 0.15
