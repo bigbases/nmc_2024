@@ -9,8 +9,9 @@ import numpy as np
 from sklearn.preprocessing import MultiLabelBinarizer
 from torchvision.io import read_image
 from skmultilearn.model_selection import iterative_train_test_split
+from sklearn.model_selection import StratifiedShuffleSplit, train_test_split
 class NMCSDataset(Dataset):
-    def __init__(self, image_dir, target_label, train_ratio=0.7, valid_ratio=0.15, test_ratio=0.15, transform=None):
+    def __init__(self, image_dir, train_ratio, valid_ratio, test_ratio, transform=None, target_label=None):
         print(image_dir)
         self.CLASSES = [0,1,2,3,4,5,6,7,8,9,10]
         self.n_classes = len(self.CLASSES)
@@ -31,25 +32,34 @@ class NMCSDataset(Dataset):
         
         self.dataframe['label'] = self.dataframe['label'].apply(process_label)
 
-        # Create binary labels based on the target_label
-        self.dataframe['binary_label'] = self.dataframe['label'].apply(lambda x: 1 if self.target_label in x else 0)
+        # Create binary labels based on the target_label if specified
+        if self.target_label is not None:
+            self.dataframe['binary_label'] = self.dataframe['label'].apply(lambda x: 1 if self.target_label in x else 0)
+            y = self.dataframe['binary_label'].values
+        else:
+            y = self.dataframe['label'].apply(lambda x: x[0] if x else -1).values  # Use first label if multiple labels exist
 
-        # Stratified split for binary classification
+        # Prepare data for split
         X = self.dataframe['image'].values
-        y = self.dataframe['binary_label'].values
 
-        X_train, X_temp, y_train, y_temp = train_test_split(X, y, train_size=train_ratio, stratify=y, random_state=42)
-        X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=test_ratio/(test_ratio+valid_ratio), stratify=y_temp, random_state=42)
+        # Try stratified split, fall back to random split if it fails
+        try:
+            X_train, X_temp, y_train, y_temp = self.stratified_split(X, y, test_size=1-train_ratio)
+            X_val, X_test, y_val, y_test = self.stratified_split(X_temp, y_temp, test_size=test_ratio/(test_ratio+valid_ratio))
+        except ValueError as e:
+            print(f"Stratified split failed: {e}. Falling back to random split.")
+            X_train, X_temp, y_train, y_temp = train_test_split(X, y, test_size=1-train_ratio, random_state=42)
+            X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=test_ratio/(test_ratio+valid_ratio), random_state=42)
 
         # Convert the split data back to DataFrames
-        train_df = pd.DataFrame({'image': X_train, 'binary_label': y_train})
-        val_df = pd.DataFrame({'image': X_val, 'binary_label': y_val})
-        test_df = pd.DataFrame({'image': X_test, 'binary_label': y_test})
+        train_df = pd.DataFrame({'image': X_train, 'label': y_train})
+        val_df = pd.DataFrame({'image': X_val, 'label': y_val})
+        test_df = pd.DataFrame({'image': X_test, 'label': y_test})
         
-        print(f"Target label: {self.target_label}")
-        print(f'Train size: {len(train_df)}, Positive samples: {sum(y_train)}')
-        print(f'Validation size: {len(val_df)}, Positive samples: {sum(y_val)}')
-        print(f'Test size: {len(test_df)}, Positive samples: {sum(y_test)}')
+        print(f"Target label: {self.target_label if self.target_label is not None else 'All'}")
+        print(f'Train size: {len(train_df)}, Positive samples: {np.sum(y_train > 0)}')
+        print(f'Validation size: {len(val_df)}, Positive samples: {np.sum(y_val > 0)}')
+        print(f'Test size: {len(test_df)}, Positive samples: {np.sum(y_test > 0)}')
         
         # Store the split dataframes
         self.train_data = train_df
@@ -59,6 +69,11 @@ class NMCSDataset(Dataset):
         self.image_dir = image_dir
         self.transform = transform
         
+    def stratified_split(self, X, y, test_size):
+        sss = StratifiedShuffleSplit(n_splits=1, test_size=test_size, random_state=42)
+        train_idx, test_idx = next(sss.split(X, y))
+        return X[train_idx], X[test_idx], y[train_idx], y[test_idx]
+
     def __len__(self):
         return len(self.dataframe)
 
@@ -67,7 +82,7 @@ class NMCSDataset(Dataset):
         img_path = os.path.join(self.image_dir, img_name)
         image = read_image(img_path)
         
-        label = self.dataframe.iloc[idx]['binary_label']
+        label = self.dataframe.iloc[idx]['label' if self.target_label is None else 'binary_label']
 
         if self.transform:
             image = self.transform(image)
@@ -81,6 +96,7 @@ class NMCSDataset(Dataset):
         test_dataset = NMCSDatasetSplit(self.test_data, self.image_dir, self.transform)
         
         return train_dataset, val_dataset, test_dataset
+
 
 class NMCSDatasetSplit(Dataset):
     def __init__(self, dataframe, image_dir, transform=None):
@@ -96,7 +112,7 @@ class NMCSDatasetSplit(Dataset):
         img_path = os.path.join(self.image_dir, img_name)
         image = read_image(img_path)
         
-        label = self.dataframe.iloc[idx]['binary_label']
+        label = self.dataframe.iloc[idx]['label']
 
         if self.transform:
             image = self.transform(image)
