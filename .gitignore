@@ -4,3 +4,4 @@ __pycache__/
 nmc.egg-info/
 output/
 checkpoints/
+NMCS/

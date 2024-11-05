@@ -100,8 +100,12 @@ class ResNet(nn.Module):
 
 if __name__ == '__main__':
     model = ResNet('50')
-    # model.load_state_dict(torch.load('C:\\Users\\sithu\\Documents\\weights\\backbones\\resnet\\resnet18_a1.pth', map_location='cpu'), strict=False)
+    # model.load_state_dict(torch.load('/workspace/jhmoon/nmc_2024/checkpoints/pretrained/resnet50_a1_in1k_weights.pth', map_location='cpu', weights_only=True), strict=False)
+    model.init_pretrained('/workspace/jhmoon/nmc_2024/checkpoints/pretrained/resnet50_a1_in1k_weights.pth')
     x = torch.zeros(1, 3, 224, 224)
     outs = model(x)
-    for y in outs:
-        print(y.shape) 
+    for name, param in model.named_parameters():
+        print(name)
+        break
+    # for y in outs:
+    #     print(y.shape) 

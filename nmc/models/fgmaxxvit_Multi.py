@@ -30,7 +30,7 @@ class FGMaxxVit_Multi(BaseModel):
 if __name__ == '__main__':
     import torch
     model = FGMaxxVit_Multi('FGMaxxVit', 10)
-    model.init_pretrained_fgmaxxvit('checkpoints/pretrained/maxvit_base_tf_512.in1k_pretrained_weights.pth')
-    x = torch.randn(2, 3, 512, 512)
-    y = model(x,torch.tensor([0,0,1,1,0,1,0,1,1,0]))
-    print(y.shape)
+    # model.init_pretrained_fgmaxxvit('checkpoints/pretrained/maxvit_base_tf_512.in1k_pretrained_weights.pth')
+    x = torch.randn(2, 3, 224, 224)
+    y = model(x)
+    print(y.shape)  # Should output: [batch_size, num_classes]

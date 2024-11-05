@@ -2,11 +2,11 @@ DEVICE          : cuda:1              # device used for training and evaluation 
 SAVE_DIR        : 'output'         # output folder name used for saving the model, logs and inference results
 
 MODEL:                                    
-  NAME          : ResNet50Model                                        # name of the model you are using #[ResNet50Model, FGMaxxVit]
-  BACKBONE      : ResNet-50                                               # model variant #[ResNet-50, FGMaxxVit]
-  PRETRAINED    : '/workspace/jhmoon/nmc_2024/checkpoints/pretrained/resnet50_a1_in1k_weights.pth'              # backbone model's weight 
+  NAME          : EfficientNetV2MModel                                      # name of the model you are using #[ResNet50Model, FGMaxxVit]
+  BACKBONE      : EfficientNetV2                                               # model variant #[ResNet-50, FGMaxxVit]
+  PRETRAINED    : '/workspace/jhmoon/nmc_2024/checkpoints/pretrained/tf_efficientnetv2_m_weights.pth'              # backbone model's weight 
   UNFREEZE      : 'full'                         # Freeze all layers without UNFREEZE ['encoder.stages.0', 'encoder.stages.1', 'encoder.stages.2', 'encoder.stages.3', None]
-  VERSION : '512'
+  VERSION : '384_32'
 
 DATASET:
   NAME          : APTOSDataset                                          # dataset name to be trained with (camvid, cityscapes, ade20k)
@@ -17,15 +17,15 @@ DATASET:
   TEST_RATIO    : 0.15
 
 TRAIN:
-  IMAGE_SIZE    : [224, 224]      # training image size in (h, w)
-  BATCH_SIZE    : 8               # batch size used to train
+  IMAGE_SIZE    : [384, 384]      # training image size in (h, w)
+  BATCH_SIZE    : 32               # batch size used to train
   EPOCHS        : 100            # number of epochs to train
   EVAL_INTERVAL : 25              # evaluation interval during training
   AMP           : false           # use AMP in training
   DDP           : false           # use DDP training
 
 LOSS:
-  NAME          : CrossEntropy          # loss function name (ohemce, ce, dice)
+  NAME          : CrossEntropy         # loss function name (ohemce, ce, dice)
   CLS_WEIGHTS   : false            # use class weights in loss calculation
 
 OPTIMIZER:
@@ -42,7 +42,7 @@ SCHEDULER:
 
 EVAL:
   MODEL_PATH    : 'checkpoints/pretrained/FGMaxxVit/FGMaxxVit.FGMaxxVit.APTOS.pth'  # trained model file path
-  IMAGE_SIZE    : [224, 224]                                                            # evaluation image size in (h, w)                       
+  IMAGE_SIZE    : [384, 384]                                                            # evaluation image size in (h, w)                       
   # MSF: 
   #   ENABLE      : false                                                                 # multi-scale and flip evaluation  
   #   FLIP        : true                                                                  # use flip in evaluation  
@@ -52,5 +52,5 @@ EVAL:
 TEST:
   MODEL_PATH    : 'checkpoints/pretrained/FGMaxxVit/FGMaxxVit.FGMaxxVit.APTOS.pth'  # trained model file path
   FILE          : 'assests/ade'                                                         # filename or foldername 
-  IMAGE_SIZE    : [224, 224]                                                            # inference image size in (h, w)
+  IMAGE_SIZE    : [384, 384]                                                            # inference image size in (h, w)
   OVERLAY       : true                                                                  # save the overlay result (image_alpha+label_alpha)

@@ -33,7 +33,8 @@ def main(cfg, gpu, save_dir):
     
     # Get train, val, and test datasets
     transform = get_train_augmentation(train_cfg['IMAGE_SIZE'])
-    dataset = eval(dataset_cfg['NAME'])(dataset_cfg['ROOT']+'/combined_images', dataset_cfg['TRAIN_RATIO'], dataset_cfg['VALID_RATIO'], dataset_cfg['TEST_RATIO'], transform)
+    # dataset = eval(dataset_cfg['NAME'])(dataset_cfg['ROOT']+'/combined_images', dataset_cfg['TRAIN_RATIO'], dataset_cfg['VALID_RATIO'], dataset_cfg['TEST_RATIO'], transform)
+    dataset = eval(dataset_cfg['NAME'])(dataset_cfg['ROOT']+'/cropped_images_1424x1648', dataset_cfg['TRAIN_RATIO'], dataset_cfg['VALID_RATIO'], dataset_cfg['TEST_RATIO'], transform)
     trainset, valset, testset = dataset.get_splits()
     
     model = eval(model_cfg['NAME'])(model_cfg['BACKBONE'], dataset.n_classes)
@@ -74,6 +75,7 @@ def main(cfg, gpu, save_dir):
             with autocast(enabled=train_cfg['AMP']):
                 logits = model(img)
                 loss = loss_fn(logits, lbl)
+                # loss = loss.mean()
 
             scaler.scale(loss).backward()
             scaler.step(optimizer)
@@ -115,6 +117,21 @@ def main(cfg, gpu, save_dir):
                 best_mf1 = mf1
                 torch.save(model.module.state_dict() if train_cfg['DDP'] else model.state_dict(), save_dir / f"{model_cfg['NAME']}_{model_cfg['BACKBONE']}_{model_cfg['UNFREEZE']}_{dataset_cfg['NAME']}_{model_cfg['VERSION']}.pth")
             print(f"Current mf1: {mf1} Best mf1: {best_mf1}")
+
+    # model.load_state_dict(torch.load(f'/workspace/jhmoon/nmc_2024/output/EfficientNetV2MModelMulti_EfficientNetV2_full_NMCDataset_384_32.pth'))
+    # results = evaluate_multilabel(model, testloader, device)
+    # mf1 = results['avg_f1']
+    # print(f"Accuracy: {results['accuracy']:.2f}%")
+    # print(f"Average Precision: {results['avg_precision']:.2f}%")
+    # print(f"Average Recall: {results['avg_recall']:.2f}%")
+    # print(f"Average F1: {results['avg_f1']:.2f}%")
+
+    # print("\nPer-class metrics:")
+    # for class_idx, metrics in results['class_metrics']['precision'].items():
+    #     print(f"Class {class_idx}:")
+    #     print(f"  Precision: {results['class_metrics']['precision'][class_idx]:.2f}%")
+    #     print(f"  Recall: {results['class_metrics']['recall'][class_idx]:.2f}%")
+    #     print(f"  F1: {results['class_metrics']['f1'][class_idx]:.2f}%")
 
     #writer.close()
     pbar.close()

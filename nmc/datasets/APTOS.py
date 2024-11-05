@@ -7,12 +7,13 @@ from torchvision import io  # Assuming this is for image reading
 from sklearn.model_selection import train_test_split
 
 class APTOSDataset(Dataset):
-    def __init__(self, image_dir, train_ratio=0.7, valid_ratio=0.15, test_ratio=0.15, transform=None):
+    def __init__(self, image_dir, train_ratio=0.7, valid_ratio=0.15, test_ratio=0.15, transform=None, target_label=None):
         print(image_dir)
         
         # Defining the classes for classification
         self.CLASSES = ['Normal', 'Mild', 'Moderate Disease Level', 'Server', 'Proliferative']
         self.n_classes = len(self.CLASSES)
+        self.target_label = target_label
 
         # Assuming combined CSV file path
         df_path = image_dir.replace('combined_images', 'combined.csv')
@@ -27,6 +28,12 @@ class APTOSDataset(Dataset):
         # Perform stratified split for train (70%), validation (15%), and test (15%)
         X = self.dataframe['id_code'].values  # Image paths as features
         y = self.dataframe['diagnosis'].values  # Integer labels
+        
+        # print(self.dataframe['diagnosis'].head(50))
+        # if self.target_label is not None:
+        #     self.dataframe['diagnosis'] = self.dataframe['diagnosis'].apply(lambda x: 1 if self.target_label == x else 0)
+        #     y = self.dataframe['diagnosis'].values
+        # print(self.dataframe['diagnosis'].head(50))
         
         # Split the data into training and remaining (validation + test)
         X_train, X_remaining, y_train, y_remaining = train_test_split(
@@ -74,8 +81,8 @@ class APTOSDataset(Dataset):
         label = self.dataframe.iloc[idx]['diagnosis']
 
         # Create a one-hot encoded vector for the label
-        one_hot = np.zeros(self.n_classes, dtype=np.float32)
-        one_hot[label] = 1.0
+        # one_hot = np.zeros(self.n_classes, dtype=np.float32)
+        # one_hot[label] = 1.0
 
         if self.transform:
             image = self.transform(image)
@@ -125,6 +132,7 @@ class APTOSDatasetSplit(Dataset):
         if self.transform:
             image = self.transform(image)
 
+        # return image, torch.tensor(label, dtype=torch.float32)
         return image, torch.tensor(one_hot, dtype=torch.float32)
 
 class EpisodicAPTOSDataset(Dataset):

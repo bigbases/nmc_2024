@@ -66,6 +66,16 @@ class Head(nn.Module):
         x = self.fc(x)
         return x
     
+class EfficientNetV2Head(nn.Module):
+    def __init__(self, in_features: int = 1280, num_classes: int = 11):
+        super(EfficientNetV2Head, self).__init__()
+        self.fc = nn.Linear(in_features, num_classes)
+
+    def forward(self, x: Tensor) -> Tensor:
+        # Directly pass the feature vector through the fully connected layer
+        x = self.fc(x)
+        return x
+    
 if __name__ == '__main__':
     import torch
     head = MLPHead(num_features=768, num_classes=1000)

@@ -18,7 +18,8 @@ class NMCSDataset(Dataset):
         self.target_label = target_label
         
         # Assuming combined CSV file path
-        df_path = image_dir.replace('combined_images', 'nmc_combined.csv')
+        # df_path = image_dir.replace('combined_images', 'nmc_combined.csv')
+        df_path = image_dir.replace('cropped_images_1424x1648', 'final_label.csv')
         
         self.dataframe = pd.read_csv(df_path)
         self.dataframe = self.dataframe.dropna()
@@ -31,14 +32,36 @@ class NMCSDataset(Dataset):
                 raise ValueError(f"Unexpected label value: {x}")
         
         self.dataframe['label'] = self.dataframe['label'].apply(process_label)
-
+        
+        # Preprocessing for the whole dataset
+        # 제외할 라벨을 문자열로 정의
+        exclude_labels = {'7','8', '9', '10'}
+        self.dataframe['label'] = self.dataframe['label'].apply(lambda x: [label for label in x if str(label) not in exclude_labels])
+        # label이 빈 리스트가 아닌 행만 남기기
+        self.dataframe = self.dataframe[self.dataframe['label'].apply(lambda x: len(x) > 0)].reset_index(drop=True)
+        # label 열에서 0이 포함된 경우 [0]으로 설정
+        self.dataframe['label'] = self.dataframe['label'].apply(lambda x: [0] if 0 in x else x)
+        #
+        
+        print(self.dataframe['label'].head(30))
+        print(self.dataframe['label'].value_counts())
         # Create binary labels based on the target_label if specified
         if self.target_label is not None:
-            self.dataframe['binary_label'] = self.dataframe['label'].apply(lambda x: 1 if self.target_label in x else 0)
+            # # target 0
+            # self.dataframe['binary_label'] = self.dataframe['label'].apply(lambda x: 1 if self.target_label in x else 0)
+            # target 2 (aptos 1)
+            # self.dataframe['binary_label'] = self.dataframe['label'].apply(lambda x: 1 if self.target_label in x and not any(num in x for num in [0, 1, 5, 6]) else 0)
+            # target 1 (aptos 2)
+            # self.dataframe['binary_label'] = self.dataframe['label'].apply(lambda x: 1 if self.target_label in x and not any(num in x for num in [0, 2, 5, 6]) else 0)
+            # target [1,2] (aptos 3)
+            # self.dataframe['binary_label'] = self.dataframe['label'].apply(lambda x: 1 if all(num in x for num in [1, 2]) and not any(num in x for num in [0, 5, 6]) else 0)
+            # target [5,6] (aptos 4)
+            self.dataframe['binary_label'] = self.dataframe['label'].apply(lambda x: 1 if any(num in x for num in [5, 6]) else 0)
             y = self.dataframe['binary_label'].values
         else:
             y = self.dataframe['label'].apply(lambda x: x[0] if x else -1).values  # Use first label if multiple labels exist
-
+        print(self.dataframe['binary_label'].head(30))
+        print(self.dataframe['binary_label'].value_counts())
         # Prepare data for split
         X = self.dataframe['image'].values
 
@@ -123,10 +146,12 @@ class NMCDataset(Dataset):
     def __init__(self, image_dir, train_ratio=0.7, valid_ratio=0.15, test_ratio=0.15, transform=None):
         print(image_dir)
         self.CLASSES = [0,1,2,3,4,5,6,7,8,9,10]
-        self.n_classes = len(self.CLASSES)
+        # self.n_classes = len(self.CLASSES)
+        self.n_classes = 7
         
         # Assuming combined CSV file path
-        df_path = image_dir.replace('combined_images', 'nmc_combined.csv')
+        # df_path = image_dir.replace('combined_images', 'nmc_combined.csv')
+        df_path = image_dir.replace('cropped_images_1424x1648', 'final_label.csv')
         
         self.dataframe = pd.read_csv(df_path)
         self.dataframe = self.dataframe.dropna()
@@ -146,8 +171,19 @@ class NMCDataset(Dataset):
         
         self.dataframe['label'] = self.dataframe['label'].apply(filter_labels)
         
+        # Preprocessing for the whole dataset
+        # 제외할 라벨을 문자열로 정의
+        exclude_labels = {'7','8', '9', '10'}
+        self.dataframe['label'] = self.dataframe['label'].apply(lambda x: [label for label in x if str(label) not in exclude_labels])
+        # label이 빈 리스트가 아닌 행만 남기기
+        self.dataframe = self.dataframe[self.dataframe['label'].apply(lambda x: len(x) > 0)].reset_index(drop=True)
+        # label 열에서 0이 포함된 경우 [0]으로 설정
+        self.dataframe['label'] = self.dataframe['label'].apply(lambda x: [0] if 0 in x else x)
+        #
+        
         # Initialize the MultiLabelBinarizer and fit_transform the label column
-        self.mlb = MultiLabelBinarizer(classes=[i for i in range(self.n_classes)])
+        # self.mlb = MultiLabelBinarizer(classes=[i for i in range(self.n_classes)])
+        self.mlb = MultiLabelBinarizer(classes=[i for i in range(7)])
         labels = self.mlb.fit_transform(self.dataframe['label'])
 
         # Perform iterative stratified split for train (70%) and remaining (30%)

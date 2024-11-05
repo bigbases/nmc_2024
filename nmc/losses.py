@@ -2,7 +2,6 @@ import torch
 from torch import nn, Tensor
 from torch.nn import functional as F
 from typing import Union
-
 class NegProtoSim(nn.Module):
     def __init__(self) -> None:
         super().__init__()
@@ -185,7 +184,6 @@ def get_loss(loss_fn_name: str = 'CrossEntropy', cls_weights: Union[Tensor, None
         return NegProtoSim()
     elif loss_fn_name =='DistContrastive':
         return DistContrastive()
-
 
 if __name__ == '__main__':
     pred = torch.randint(0, 19, (2, 19, 480, 640), dtype=torch.float)
