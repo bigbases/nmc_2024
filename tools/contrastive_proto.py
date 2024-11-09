@@ -332,7 +332,7 @@ def train_and_evaluate(model, train_loader, val_loader, optimizer, scheduler, sc
     model.load_state_dict(checkpoint['model_state_dict'])
     
     # 최종 성능 평가
-    final_metrics = evaluate_with_dual_prototypes(model, train_loader, val_loader, device)
+    final_metrics = evaluate_with_prototypes(model, train_loader, val_loader, device)
     
     print("\nFinal Model Performance:")
     print(f"Overall F1: {final_metrics['overall']['f1']:.4f}")
