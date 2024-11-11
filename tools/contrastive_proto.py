@@ -27,6 +27,63 @@ from torch import optim, nn
 import torch
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from torchvision import transforms, models
+import matplotlib.pyplot as plt
+import os
+
+def save_distance_analysis(distances_per_class, labels, margin, n_classes, output_dir='output'):
+   # 출력 디렉토리 생성
+   os.makedirs(output_dir, exist_ok=True)
+   
+   # 거리 분포 시각화
+   plt.figure(figsize=(12, 6))
+   for class_idx in range(n_classes):
+       distances = distances_per_class[class_idx]
+       plt.subplot(1, n_classes, class_idx + 1)
+       
+       # 정답 레이블별로 거리 분리
+       positive_distances = [d for d, l in zip(distances, labels[:, class_idx]) if l == 1]
+       negative_distances = [d for d, l in zip(distances, labels[:, class_idx]) if l == 0]
+       
+       # 히스토그램 그리기
+       plt.hist(positive_distances, bins=50, alpha=0.5, label='Positive', color='blue')
+       plt.hist(negative_distances, bins=50, alpha=0.5, label='Negative', color='red')
+       plt.axvline(x=margin, color='green', linestyle='--', label=f'Margin ({margin:.3f})')
+       
+       plt.title(f'Class {class_idx} Distance Distribution')
+       plt.xlabel('Distance')
+       plt.ylabel('Count')
+       plt.legend()
+
+   plt.tight_layout()
+   plt.savefig(os.path.join(output_dir, 'distance_distribution.png'), dpi=300, bbox_inches='tight')
+   plt.close()
+   
+   # 거리 통계 저장
+   with open(os.path.join(output_dir, 'distance_stats.txt'), 'w') as f:
+       for class_idx in range(n_classes):
+           distances = distances_per_class[class_idx]
+           positive_distances = [d for d, l in zip(distances, labels[:, class_idx]) if l == 1]
+           negative_distances = [d for d, l in zip(distances, labels[:, class_idx]) if l == 0]
+           
+           f.write(f"\nClass {class_idx} Statistics:\n")
+           f.write("-" * 30 + "\n")
+           f.write(f"Margin: {margin:.4f}\n\n")
+           
+           if positive_distances:
+               f.write("Positive Samples:\n")
+               f.write(f"Mean: {np.mean(positive_distances):.4f}\n")
+               f.write(f"Std: {np.std(positive_distances):.4f}\n")
+               f.write(f"Min: {np.min(positive_distances):.4f}\n")
+               f.write(f"Max: {np.max(positive_distances):.4f}\n")
+           
+           if negative_distances:
+               f.write("\nNegative Samples:\n")
+               f.write(f"Mean: {np.mean(negative_distances):.4f}\n")
+               f.write(f"Std: {np.std(negative_distances):.4f}\n")
+               f.write(f"Min: {np.min(negative_distances):.4f}\n")
+               f.write(f"Max: {np.max(negative_distances):.4f}\n")
+           
+           f.write("\n" + "=" * 50 + "\n")
 
 # Early Stopping
 class EarlyStopping:
@@ -219,25 +276,52 @@ def evaluate_with_prototypes(model, train_loader, val_loader, device, margin=0.3
     labels_list = []
     
     print("Evaluating...")
+    distances_per_class = [[] for _ in range(n_classes)]  # 각 클래스별 거리 저장
     for images, labels in tqdm(val_loader):
         images, labels = images.to(device), labels.to(device)
         embeddings = model(images)  # [batch, n_class, embedding_dim]
         
         batch_predictions = []
+        batch_distances = []  # 배치의 거리값 저장
         for class_idx in range(n_classes):
             class_emb = embeddings[:, class_idx, :]  # [batch, embedding_dim]
             class_emb = F.normalize(class_emb, dim=1)
             
             # prototype과의 거리 계산
             distances = torch.sum((class_emb - prototypes[class_idx]) ** 2, dim=1)
+            distances_per_class[class_idx].extend(distances.cpu().numpy())
+            batch_distances.append(distances)
             # 거리가 임계값보다 작으면 해당 클래스로 분류
             pred = (distances < margin).float()
             batch_predictions.append(pred)
         
+        batch_distances = torch.stack(batch_distances, dim=1)  # [batch, n_class]
         batch_predictions = torch.stack(batch_predictions, dim=1)  # [batch, n_class]
+        
+        # 배치별 결과 출력
+        # print("\nBatch Results:")
+        # print(f"Margin: {margin:.4f}")
+        # for i in range(len(images)):
+        #     print(f"\nSample {i}:")
+        #     for class_idx in range(n_classes):
+        #         print(f"Class {class_idx}:")
+        #         print(f"  Distance: {batch_distances[i, class_idx]:.4f}")
+        #         print(f"  Prediction: {batch_predictions[i, class_idx].item()}")
+        #         print(f"  True Label: {labels[i, class_idx].item()}")
         
         predictions_list.append(batch_predictions.cpu())
         labels_list.append(labels.cpu())
+    
+    # 분석 결과 저장
+    all_labels = torch.cat(labels_list)
+    save_distance_analysis(
+    distances_per_class=distances_per_class,
+    labels=all_labels,
+    margin=margin,
+    n_classes=n_classes,
+    output_dir='output'
+    )
+
     
     # 결과 평가
     all_predictions = torch.cat(predictions_list, dim=0)
@@ -277,51 +361,51 @@ def evaluate_with_prototypes(model, train_loader, val_loader, device, margin=0.3
 
 def train_and_evaluate(model, train_loader, val_loader, optimizer, scheduler, scaler, device, epochs, temperature=0.07):
     best_f1 = 0.0
-    early_stopping = EarlyStopping(patience=30, min_delta=0.001)
+    early_stopping = EarlyStopping(patience=10, min_delta=0.001)
     
-    for epoch in range(epochs):
-        print(f"Epoch {epoch+1}/{epochs}")
+    # for epoch in range(epochs):
+    #     print(f"Epoch {epoch+1}/{epochs}")
         
-        # criterion 제거 (우리는 custom loss를 사용)
-        train_loss = train_epoch(model, train_loader, optimizer, scaler, device, temperature)
+    #     # criterion 제거 (우리는 custom loss를 사용)
+    #     train_loss = train_epoch(model, train_loader, optimizer, scaler, device, temperature)
         
-        # 새로운 평가 함수 사용
-        metrics = evaluate_with_prototypes(model, train_loader, val_loader, device)
-        val_f1 = metrics['overall']['f1']
+    #     # 새로운 평가 함수 사용
+    #     metrics = evaluate_with_prototypes(model, train_loader, val_loader, device)
+    #     val_f1 = metrics['overall']['f1']
         
-        print(f"Training Loss: {train_loss:.4f}")
-        print(f"Validation F1 Score: {val_f1:.4f}")
+    #     print(f"Training Loss: {train_loss:.4f}")
+    #     print(f"Validation F1 Score: {val_f1:.4f}")
         
-        # 클래스별 성능 출력
-        print("\nPer-class Performance:")
-        for class_name, class_metric in metrics['per_class'].items():
-            print(f"{class_name}:")
-            print(f"  F1: {class_metric['f1']:.4f}")
-            print(f"  Precision: {class_metric['precision']:.4f}")
-            print(f"  Recall: {class_metric['recall']:.4f}")
+    #     # 클래스별 성능 출력
+    #     print("\nPer-class Performance:")
+    #     for class_name, class_metric in metrics['per_class'].items():
+    #         print(f"{class_name}:")
+    #         print(f"  F1: {class_metric['f1']:.4f}")
+    #         print(f"  Precision: {class_metric['precision']:.4f}")
+    #         print(f"  Recall: {class_metric['recall']:.4f}")
         
-        scheduler.step(val_f1)
+    #     scheduler.step(val_f1)
         
-        if val_f1 > best_f1:
-            best_f1 = val_f1
-            # 모델 저장 시 필요한 정보들도 함께 저장
-            save_dict = {
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'best_f1': best_f1,
-                'temperature': temperature,
-                'class_metrics': metrics['per_class']
-            }
-            torch.save(save_dict, 'output/best_model.pth')
-            print("New best model saved!")
+    #     if val_f1 > best_f1:
+    #         best_f1 = val_f1
+    #         # 모델 저장 시 필요한 정보들도 함께 저장
+    #         save_dict = {
+    #             'epoch': epoch,
+    #             'model_state_dict': model.state_dict(),
+    #             'optimizer_state_dict': optimizer.state_dict(),
+    #             'best_f1': best_f1,
+    #             'temperature': temperature,
+    #             'class_metrics': metrics['per_class']
+    #         }
+    #         torch.save(save_dict, 'output/best_model.pth')
+    #         print("New best model saved!")
         
-        early_stopping(val_f1)
-        if early_stopping.early_stop:
-            print("Early stopping triggered")
-            break
+    #     early_stopping(val_f1)
+    #     if early_stopping.early_stop:
+    #         print("Early stopping triggered")
+    #         break
         
-        print()
+    #     print()
     
     # 최종 결과 출력
     print("\nTraining completed!")
