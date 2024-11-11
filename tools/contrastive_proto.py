@@ -277,7 +277,7 @@ def evaluate_with_prototypes(model, train_loader, val_loader, device, margin=0.3
 
 def train_and_evaluate(model, train_loader, val_loader, optimizer, scheduler, scaler, device, epochs, temperature=0.07):
     best_f1 = 0.0
-    early_stopping = EarlyStopping(patience=10, min_delta=0.001)
+    early_stopping = EarlyStopping(patience=30, min_delta=0.001)
     
     for epoch in range(epochs):
         print(f"Epoch {epoch+1}/{epochs}")
@@ -333,6 +333,14 @@ def train_and_evaluate(model, train_loader, val_loader, optimizer, scheduler, sc
     
     # 최종 성능 평가
     final_metrics = evaluate_with_prototypes(model, train_loader, val_loader, device)
+
+    # 클래스별 성능 출력
+    print("\nPer-class Performance:")
+    for class_name, class_metric in final_metrics['per_class'].items():
+        print(f"{class_name}:")
+        print(f"  F1: {class_metric['f1']:.4f}")
+        print(f"  Precision: {class_metric['precision']:.4f}")
+        print(f"  Recall: {class_metric['recall']:.4f}")
     
     print("\nFinal Model Performance:")
     print(f"Overall F1: {final_metrics['overall']['f1']:.4f}")
@@ -401,7 +409,7 @@ def main(cfg, gpu, save_dir):
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.1, patience=5, verbose=True)
     scaler = GradScaler(enabled=train_cfg['AMP'])
 
-    epoch = 100
+    epoch = 1000
     print("Start Training ...")
     
     best_f1, final_metrics = train_and_evaluate(
