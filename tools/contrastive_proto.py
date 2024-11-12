@@ -265,38 +265,44 @@ def dot_similarity(embeddings, temperature=0.07, eps=1e-8):
 
 def improved_adaptive_threshold(distances, labels, margin=0.3, alpha=0.2):
     """
-    향상된 적응형 임계값 계산
+    향상된 적응형 임계값 계산 (수정된 버전)
     
     Args:
-        distances: 현재 배치의 거리값들
-        labels: 실제 레이블
-        margin: 기본 margin 값 (train에서 사용된 값과 동일하게 설정)
+        distances: 현재 배치의 거리값들 (torch.Tensor)
+        labels: 실제 레이블 (torch.Tensor)
+        margin: 기본 margin 값
         alpha: 적응 계수 (0에 가까울수록 margin에 가까운 값 사용)
     
     Returns:
         float: 계산된 임계값
     """
+    # tensor로 변환
+    if not isinstance(distances, torch.Tensor):
+        distances = torch.tensor(distances)
+    if not isinstance(labels, torch.Tensor):
+        labels = torch.tensor(labels)
+        
     positive_distances = distances[labels == 1]
     negative_distances = distances[labels == 0]
     
     if len(positive_distances) > 0 and len(negative_distances) > 0:
         # positive samples의 95 퍼센타일 계산
-        pos_threshold = torch.quantile(positive_distances, 0.95)
+        pos_threshold = torch.quantile(positive_distances.float(), 0.95)
         
         # negative samples의 5 퍼센타일 계산
-        neg_threshold = torch.quantile(negative_distances, 0.05)
+        neg_threshold = torch.quantile(negative_distances.float(), 0.05)
         
         # positive와 negative 샘플 간의 간격 계산
         gap = neg_threshold - pos_threshold
         
         # 최종 임계값 계산: margin을 기준으로 데이터 분포에 따라 조정
         adaptive_component = pos_threshold + (gap * 0.5)
-        threshold = (1 - alpha) * margin + alpha * adaptive_component
+        threshold = (1 - alpha) * margin + alpha * adaptive_component.item()
         
         # 임계값의 범위를 제한
         threshold = max(margin * 0.5, min(threshold, margin * 1.5))
         
-        return threshold.item()
+        return threshold
     
     return margin  # 충분한 데이터가 없을 경우 기본 margin 사용
 
@@ -410,7 +416,7 @@ def compute_class_prototypes(class_embeddings, device):
 
 def evaluate_with_precomputed_prototypes(model, val_loader, prototypes, device, margin=0.3):
     """
-    미리 계산된 프로토타입을 사용하여 평가를 수행하는 함수
+    미리 계산된 프로토타입을 사용하여 평가를 수행하는 함수 (수정된 버전)
     """
     predictions_list = []
     labels_list = []
@@ -429,7 +435,7 @@ def evaluate_with_precomputed_prototypes(model, val_loader, prototypes, device, 
             class_emb = embeddings[:, class_idx, :]
             similarities = F.cosine_similarity(class_emb, prototypes[class_idx].unsqueeze(0))
             distances = 1 - similarities
-            distances_per_class[class_idx].extend(distances.cpu())
+            distances_per_class[class_idx].extend(distances.cpu().numpy())  # numpy로 변환
     
     # 클래스별 임계값 계산
     for class_idx in range(len(prototypes)):
@@ -441,9 +447,9 @@ def evaluate_with_precomputed_prototypes(model, val_loader, prototypes, device, 
             class_distances, 
             class_labels, 
             margin=margin,
-            alpha=0.2  # 조정 가능한 파라미터
+            alpha=0.2
         )
-        class_thresholds[class_idx] = threshold
+        class_thresholds[class_idx] = float(threshold)  # float로 변환
     
     # 두 번째 패스: 실제 예측
     for images, labels in tqdm(val_loader, desc="Evaluating"):
@@ -470,12 +476,12 @@ def evaluate_with_precomputed_prototypes(model, val_loader, prototypes, device, 
     all_predictions = torch.cat(predictions_list, dim=0)
     all_labels = torch.cat(labels_list, dim=0)
     
-    # 거리 분포 분석 저장 (임계값 정보 포함)
+    # 거리 분포 분석 저장
     save_distance_analysis(
         distances_per_class=distances_per_class,
-        labels=all_labels,
+        labels=all_labels.numpy(),
         thresholds=class_thresholds,
-        n_classes=len(prototypes),  # 임계값 정보 추가
+        n_classes=len(prototypes),
         output_dir='output'
     )
     
