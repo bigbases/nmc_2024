@@ -6,7 +6,7 @@ import multiprocessing as mp
 import torch.nn.functional as F
 from tabulate import tabulate
 from tqdm import tqdm
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Sampler
 from pathlib import Path
 #from torch.utils.tensorboard import SummaryWriter
 from torch.cuda.amp import GradScaler, autocast
@@ -29,61 +29,158 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 from torchvision import transforms, models
 import matplotlib.pyplot as plt
 import os
+from collections import defaultdict
 
-def save_distance_analysis(distances_per_class, labels, margin, n_classes, output_dir='output'):
-   # 출력 디렉토리 생성
-   os.makedirs(output_dir, exist_ok=True)
-   
-   # 거리 분포 시각화
-   plt.figure(figsize=(12, 6))
-   for class_idx in range(n_classes):
-       distances = distances_per_class[class_idx]
-       plt.subplot(1, n_classes, class_idx + 1)
-       
-       # 정답 레이블별로 거리 분리
-       positive_distances = [d for d, l in zip(distances, labels[:, class_idx]) if l == 1]
-       negative_distances = [d for d, l in zip(distances, labels[:, class_idx]) if l == 0]
-       
-       # 히스토그램 그리기
-       plt.hist(positive_distances, bins=50, alpha=0.5, label='Positive', color='blue')
-       plt.hist(negative_distances, bins=50, alpha=0.5, label='Negative', color='red')
-       plt.axvline(x=margin, color='green', linestyle='--', label=f'Margin ({margin:.3f})')
-       
-       plt.title(f'Class {class_idx} Distance Distribution')
-       plt.xlabel('Distance')
-       plt.ylabel('Count')
-       plt.legend()
+class BalancedBatchSampler(Sampler):
+    def __init__(self, dataset, batch_size):
+        self.dataset = dataset
+        self.batch_size = batch_size
+        
+        # 데이터셋에서 레이블 추출
+        if hasattr(dataset, 'labels'):
+            self.labels = dataset.labels
+            if isinstance(self.labels, np.ndarray):
+                self.labels = torch.from_numpy(self.labels)
+        elif hasattr(dataset, 'targets'):
+            self.labels = dataset.targets
+            if isinstance(self.labels, np.ndarray):
+                self.labels = torch.from_numpy(self.labels)
+        else:
+            try:
+                self.labels = [sample[1] for sample in dataset]
+                if isinstance(self.labels[0], np.ndarray):
+                    self.labels = torch.from_numpy(np.array(self.labels))
+                else:
+                    self.labels = torch.tensor(self.labels)
+            except:
+                raise ValueError("Cannot access labels from dataset")
+        
+        self.n_classes = self.labels.shape[1] if len(self.labels.shape) > 1 else len(torch.unique(self.labels))
+        self.samples_per_class = batch_size // self.n_classes
+        
+        # 클래스별 인덱스 저장
+        self.class_indices = []
+        for i in range(self.n_classes):
+            if len(self.labels.shape) > 1:
+                idx = torch.where(self.labels[:, i] == 1)[0]
+            else:
+                idx = torch.where(self.labels == i)[0]
+            self.class_indices.append(idx)
+        
+        self.n_batches = len(self.dataset) // batch_size
+        if len(self.dataset) % batch_size != 0:
+            self.n_batches += 1
+    
+    def __iter__(self):
+        for _ in range(self.n_batches):
+            batch_indices = []
+            for class_idx in range(self.n_classes):
+                class_samples = self.class_indices[class_idx]
+                if len(class_samples) == 0:
+                    continue
+                
+                # 랜덤 선택
+                selected = class_samples[torch.randint(len(class_samples), 
+                                                     (self.samples_per_class,))]
+                batch_indices.extend(selected.tolist())
+            
+            # 배치 크기에 맞게 자르기
+            if len(batch_indices) > self.batch_size:
+                batch_indices = batch_indices[:self.batch_size]
+            
+            # 중요: 리스트로 yield
+            yield batch_indices
+    
+    def __len__(self):
+        return self.n_batches
 
-   plt.tight_layout()
-   plt.savefig(os.path.join(output_dir, 'distance_distribution.png'), dpi=300, bbox_inches='tight')
-   plt.close()
-   
-   # 거리 통계 저장
-   with open(os.path.join(output_dir, 'distance_stats.txt'), 'w') as f:
-       for class_idx in range(n_classes):
-           distances = distances_per_class[class_idx]
-           positive_distances = [d for d, l in zip(distances, labels[:, class_idx]) if l == 1]
-           negative_distances = [d for d, l in zip(distances, labels[:, class_idx]) if l == 0]
-           
-           f.write(f"\nClass {class_idx} Statistics:\n")
-           f.write("-" * 30 + "\n")
-           f.write(f"Margin: {margin:.4f}\n\n")
-           
-           if positive_distances:
-               f.write("Positive Samples:\n")
-               f.write(f"Mean: {np.mean(positive_distances):.4f}\n")
-               f.write(f"Std: {np.std(positive_distances):.4f}\n")
-               f.write(f"Min: {np.min(positive_distances):.4f}\n")
-               f.write(f"Max: {np.max(positive_distances):.4f}\n")
-           
-           if negative_distances:
-               f.write("\nNegative Samples:\n")
-               f.write(f"Mean: {np.mean(negative_distances):.4f}\n")
-               f.write(f"Std: {np.std(negative_distances):.4f}\n")
-               f.write(f"Min: {np.min(negative_distances):.4f}\n")
-               f.write(f"Max: {np.max(negative_distances):.4f}\n")
-           
-           f.write("\n" + "=" * 50 + "\n")
+def save_distance_analysis(distances_per_class, labels, thresholds, n_classes, output_dir='output'):
+    """
+    거리 분포 분석 및 시각화를 저장하는 함수
+    
+    Args:
+        distances_per_class: 클래스별 거리 리스트
+        labels: 실제 레이블
+        thresholds: 클래스별 계산된 임계값 딕셔너리
+        n_classes: 클래스 수
+        output_dir: 출력 저장 디렉토리
+    """
+    # 출력 디렉토리 생성
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # 거리 분포 시각화
+    plt.figure(figsize=(12, 6))
+    for class_idx in range(n_classes):
+        distances = distances_per_class[class_idx]
+        plt.subplot(1, n_classes, class_idx + 1)
+        
+        # 정답 레이블별로 거리 분리
+        positive_distances = [d for d, l in zip(distances, labels[:, class_idx]) if l == 1]
+        negative_distances = [d for d, l in zip(distances, labels[:, class_idx]) if l == 0]
+        
+        # 히스토그램 그리기
+        plt.hist(positive_distances, bins=50, alpha=0.5, label='Positive', color='blue')
+        plt.hist(negative_distances, bins=50, alpha=0.5, label='Negative', color='red')
+        
+        # 임계값 표시
+        threshold = thresholds[class_idx]
+        plt.axvline(x=threshold, color='green', linestyle='--', 
+                   label=f'Threshold ({threshold:.3f})')
+        
+        plt.title(f'Class {class_idx} Distance Distribution')
+        plt.xlabel('Distance')
+        plt.ylabel('Count')
+        plt.legend()
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, 'distance_distribution.png'), dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    # 거리 통계 저장
+    with open(os.path.join(output_dir, 'distance_stats.txt'), 'w') as f:
+        for class_idx in range(n_classes):
+            distances = distances_per_class[class_idx]
+            positive_distances = [d for d, l in zip(distances, labels[:, class_idx]) if l == 1]
+            negative_distances = [d for d, l in zip(distances, labels[:, class_idx]) if l == 0]
+            threshold = thresholds[class_idx]
+            
+            f.write(f"\nClass {class_idx} Statistics:\n")
+            f.write("-" * 30 + "\n")
+            f.write(f"Adaptive Threshold: {threshold:.4f}\n\n")
+            
+            if positive_distances:
+                f.write("Positive Samples:\n")
+                f.write(f"Mean: {np.mean(positive_distances):.4f}\n")
+                f.write(f"Std: {np.std(positive_distances):.4f}\n")
+                f.write(f"Min: {np.min(positive_distances):.4f}\n")
+                f.write(f"Max: {np.max(positive_distances):.4f}\n")
+                # 임계값 기준 오분류 비율 추가
+                misclassified = sum(1 for d in positive_distances if d >= threshold)
+                misclassification_rate = misclassified / len(positive_distances)
+                f.write(f"False Negative Rate: {misclassification_rate:.4f}\n")
+            
+            if negative_distances:
+                f.write("\nNegative Samples:\n")
+                f.write(f"Mean: {np.mean(negative_distances):.4f}\n")
+                f.write(f"Std: {np.std(negative_distances):.4f}\n")
+                f.write(f"Min: {np.min(negative_distances):.4f}\n")
+                f.write(f"Max: {np.max(negative_distances):.4f}\n")
+                # 임계값 기준 오분류 비율 추가
+                misclassified = sum(1 for d in negative_distances if d < threshold)
+                misclassification_rate = misclassified / len(negative_distances)
+                f.write(f"False Positive Rate: {misclassification_rate:.4f}\n")
+            
+            # 임계값 선택 근거 추가
+            f.write("\nThreshold Selection Analysis:\n")
+            f.write(f"Selected Threshold: {threshold:.4f}\n")
+            if positive_distances and negative_distances:
+                pos_95th = np.percentile(positive_distances, 95)
+                neg_5th = np.percentile(negative_distances, 5)
+                f.write(f"Positive 95th percentile: {pos_95th:.4f}\n")
+                f.write(f"Negative 5th percentile: {neg_5th:.4f}\n")
+                f.write(f"Gap between classes: {neg_5th - pos_95th:.4f}\n")
+            
+            f.write("\n" + "=" * 50 + "\n")
 
 # Early Stopping
 class EarlyStopping:
@@ -166,6 +263,62 @@ def dot_similarity(embeddings, temperature=0.07, eps=1e-8):
     
     return log_similarity
 
+def improved_adaptive_threshold(distances, labels, margin=0.3, alpha=0.2):
+    """
+    향상된 적응형 임계값 계산
+    
+    Args:
+        distances: 현재 배치의 거리값들
+        labels: 실제 레이블
+        margin: 기본 margin 값 (train에서 사용된 값과 동일하게 설정)
+        alpha: 적응 계수 (0에 가까울수록 margin에 가까운 값 사용)
+    
+    Returns:
+        float: 계산된 임계값
+    """
+    positive_distances = distances[labels == 1]
+    negative_distances = distances[labels == 0]
+    
+    if len(positive_distances) > 0 and len(negative_distances) > 0:
+        # positive samples의 95 퍼센타일 계산
+        pos_threshold = torch.quantile(positive_distances, 0.95)
+        
+        # negative samples의 5 퍼센타일 계산
+        neg_threshold = torch.quantile(negative_distances, 0.05)
+        
+        # positive와 negative 샘플 간의 간격 계산
+        gap = neg_threshold - pos_threshold
+        
+        # 최종 임계값 계산: margin을 기준으로 데이터 분포에 따라 조정
+        adaptive_component = pos_threshold + (gap * 0.5)
+        threshold = (1 - alpha) * margin + alpha * adaptive_component
+        
+        # 임계값의 범위를 제한
+        threshold = max(margin * 0.5, min(threshold, margin * 1.5))
+        
+        return threshold.item()
+    
+    return margin  # 충분한 데이터가 없을 경우 기본 margin 사용
+
+def compute_robust_prototype(embeddings, k=None):
+    """더 강건한 프로토타입 계산"""
+    if k is None:
+        k = max(len(embeddings) // 2, 1)  # 상위 50% 샘플 사용
+    
+    # 초기 중심점 계산
+    initial_centroid = embeddings.mean(0)
+    
+    # 중심점과의 거리 계산
+    distances = torch.norm(embeddings - initial_centroid, dim=1)
+    
+    # 가장 가까운 k개의 샘플 선택
+    _, indices = distances.topk(k, largest=False)
+    selected_embeddings = embeddings[indices]
+    
+    # 최종 프로토타입 계산
+    prototype = selected_embeddings.mean(0)
+    return F.normalize(prototype, p=2, dim=0)
+
 def train_epoch(model, dataloader, optimizer, scaler, device, margin=0.3, temperature=0.1):
     model.train()
     total_loss = 0
@@ -173,239 +326,291 @@ def train_epoch(model, dataloader, optimizer, scaler, device, margin=0.3, temper
     for images, labels in tqdm(dataloader, desc="Training"):
         images, labels = images.to(device), labels.to(device)
         
-        optimizer.zero_grad()
-        
+        # 전체 배치에 대한 임베딩을 한 번에 계산
         with autocast(enabled=scaler is not None):
+            all_embeddings = model(images)  # [batch, n_class, embedding_dim]
+            all_embeddings = F.normalize(all_embeddings, p=2, dim=2)
+            
+            batch_loss = 0
+            optimizer.zero_grad()
+            
             for class_idx in range(labels.shape[1]):
                 class_labels = labels[:, class_idx]
+                embeddings = all_embeddings[:, class_idx, :]
                 
-                with torch.set_grad_enabled(True):
-                    embeddings = model(images)[:, class_idx:class_idx+1, :].clone().squeeze(1)  # [batch, embedding_dim]
-                    embeddings = F.normalize(embeddings, p=2, dim=1)
-                    
-                    positive_mask = class_labels == 1
-                    negative_mask = class_labels == 0
-                    
-                    if positive_mask.sum() > 0 and negative_mask.sum() > 0:
-                        # 프로토타입 계산 (anchor)
-                        prototype = embeddings[positive_mask].mean(0)
-                        prototype = F.normalize(prototype, p=2, dim=0)
-                        
-                        # Positive와 Negative samples와의 거리 계산
-                        pos_dist = torch.sum((embeddings[positive_mask] - prototype) ** 2, dim=1)
-                        neg_dist = torch.sum((embeddings[negative_mask] - prototype) ** 2, dim=1)
-                        
-                        # 트리플렛 로스 계산
-                        triplet_loss = torch.clamp(
-                            pos_dist.unsqueeze(1) - neg_dist.unsqueeze(0) + margin,
-                            min=0
-                        ).mean()
-                        
-                        # print(f"\nclass_idx: {class_idx}")
-                        # print(f"triplet_loss: {triplet_loss.item():.4f}")
-                        # print(f"pos_dist mean: {pos_dist.mean().item():.4f}")
-                        # print(f"neg_dist mean: {neg_dist.mean().item():.4f}")
-                        
-                        if scaler is not None:
-                            scaler.scale(triplet_loss).backward()
-                        else:
-                            triplet_loss.backward()
-                        
-                        total_loss += triplet_loss.item()
+                positive_mask = class_labels == 1
+                negative_mask = class_labels == 0
                 
+                if positive_mask.sum() > 0 and negative_mask.sum() > 0:
+                    pos_embeddings = embeddings[positive_mask]
+                    prototype = compute_robust_prototype(pos_embeddings)
+                    
+                    # 코사인 거리 계산
+                    pos_sim = F.cosine_similarity(pos_embeddings, prototype.unsqueeze(0))
+                    neg_sim = F.cosine_similarity(embeddings[negative_mask], prototype.unsqueeze(0))
+                    
+                    pos_dist = 1 - pos_sim
+                    neg_dist = 1 - neg_sim
+                    
+                    # 하드 네거티브 마이닝
+                    k = min(3, len(neg_dist))
+                    hardest_neg_dist, _ = neg_dist.topk(k, largest=False)
+                    
+                    # Loss 계산
+                    class_loss = calculate_class_loss(pos_dist, hardest_neg_dist, margin, temperature, device)
+                    batch_loss += class_loss
+            
+            if batch_loss > 0:
                 if scaler is not None:
+                    scaler.scale(batch_loss).backward()
                     scaler.step(optimizer)
                     scaler.update()
                 else:
+                    batch_loss.backward()
                     optimizer.step()
                 
-                optimizer.zero_grad()
+                total_loss += batch_loss.item()
+        
+        optimizer.zero_grad()
     
     return total_loss / len(dataloader)
 
+def compute_class_prototypes(class_embeddings, device):
+    """
+    각 클래스별 프로토타입을 계산하는 함수
+    
+    Args:
+        class_embeddings: defaultdict, 클래스별 임베딩을 담고 있는 사전
+        device: torch.device, 계산을 수행할 디바이스
+    
+    Returns:
+        prototypes: torch.Tensor, 각 클래스의 프로토타입 [n_classes, embedding_dim]
+    """
+    prototypes = []
+    n_classes = max(class_embeddings.keys()) + 1
+    
+    for class_idx in range(n_classes):
+        if class_embeddings[class_idx]:
+            # 클래스의 모든 임베딩을 연결
+            class_all_embeddings = torch.cat(class_embeddings[class_idx], dim=0)
+            
+            # 강건한 프로토타입 계산
+            prototype = compute_robust_prototype(class_all_embeddings)
+            prototypes.append(prototype)
+        else:
+            # 해당 클래스의 임베딩이 없는 경우
+            # 첫 번째 있는 클래스의 임베딩 차원을 사용
+            for idx in range(n_classes):
+                if class_embeddings[idx]:
+                    embedding_dim = class_embeddings[idx][0].shape[-1]
+                    break
+            prototypes.append(torch.zeros(embedding_dim, device=device))
+    
+    return torch.stack(prototypes)  # [n_classes, embedding_dim]
+
+def evaluate_with_precomputed_prototypes(model, val_loader, prototypes, device, margin=0.3):
+    """
+    미리 계산된 프로토타입을 사용하여 평가를 수행하는 함수
+    """
+    predictions_list = []
+    labels_list = []
+    distances_per_class = [[] for _ in range(len(prototypes))]
+    
+    # 클래스별 임계값을 저장할 딕셔너리
+    class_thresholds = {}
+    
+    # 첫 번째 패스: 거리 수집
+    for images, labels in tqdm(val_loader, desc="Collecting distances"):
+        images = images.to(device)
+        embeddings = model(images)
+        embeddings = F.normalize(embeddings, p=2, dim=2)
+        
+        for class_idx in range(len(prototypes)):
+            class_emb = embeddings[:, class_idx, :]
+            similarities = F.cosine_similarity(class_emb, prototypes[class_idx].unsqueeze(0))
+            distances = 1 - similarities
+            distances_per_class[class_idx].extend(distances.cpu())
+    
+    # 클래스별 임계값 계산
+    for class_idx in range(len(prototypes)):
+        class_distances = torch.tensor(distances_per_class[class_idx])
+        class_labels = torch.cat([labels[:, class_idx] for _, labels in val_loader])
+        
+        # 향상된 임계값 계산
+        threshold = improved_adaptive_threshold(
+            class_distances, 
+            class_labels, 
+            margin=margin,
+            alpha=0.2  # 조정 가능한 파라미터
+        )
+        class_thresholds[class_idx] = threshold
+    
+    # 두 번째 패스: 실제 예측
+    for images, labels in tqdm(val_loader, desc="Evaluating"):
+        images = images.to(device)
+        embeddings = model(images)
+        embeddings = F.normalize(embeddings, p=2, dim=2)
+        
+        batch_predictions = []
+        
+        for class_idx in range(len(prototypes)):
+            class_emb = embeddings[:, class_idx, :]
+            similarities = F.cosine_similarity(class_emb, prototypes[class_idx].unsqueeze(0))
+            distances = 1 - similarities
+            
+            # 클래스별 계산된 임계값 사용
+            pred = (distances < class_thresholds[class_idx]).float()
+            batch_predictions.append(pred)
+        
+        batch_predictions = torch.stack(batch_predictions, dim=1)
+        predictions_list.append(batch_predictions.cpu())
+        labels_list.append(labels.cpu())
+    
+    # 결과 분석 및 메트릭 계산
+    all_predictions = torch.cat(predictions_list, dim=0)
+    all_labels = torch.cat(labels_list, dim=0)
+    
+    # 거리 분포 분석 저장 (임계값 정보 포함)
+    save_distance_analysis(
+        distances_per_class=distances_per_class,
+        labels=all_labels,
+        thresholds=class_thresholds,
+        n_classes=len(prototypes),  # 임계값 정보 추가
+        output_dir='output'
+    )
+    
+    metrics = calculate_metrics(all_predictions, all_labels, distances_per_class, prototypes)
+    
+    # 임계값 정보를 메트릭에 추가
+    metrics['thresholds'] = class_thresholds
+    
+    return metrics
+
+def calculate_metrics(predictions, labels, distances_per_class, prototypes):
+    """
+    예측 결과에 대한 메트릭을 계산하는 함수
+    """
+    metrics = {
+        'overall': {
+            'accuracy': accuracy_score(labels.numpy(), predictions.numpy()),
+            'precision': precision_score(labels.numpy(), predictions.numpy(), average='macro'),
+            'recall': recall_score(labels.numpy(), predictions.numpy(), average='macro'),
+            'f1': f1_score(labels.numpy(), predictions.numpy(), average='macro')
+        },
+        'per_class': {}
+    }
+    
+    # 클래스별 메트릭 계산
+    for class_idx in range(len(prototypes)):
+        class_pred = predictions[:, class_idx]
+        class_label = labels[:, class_idx]
+        
+        metrics['per_class'][f'class_{class_idx}'] = {
+            'f1': f1_score(class_label.numpy(), class_pred.numpy()),
+            'precision': precision_score(class_label.numpy(), class_pred.numpy()),
+            'recall': recall_score(class_label.numpy(), class_pred.numpy()),
+            'support': class_label.sum().item(),
+            'avg_distance': np.mean(distances_per_class[class_idx])
+        }
+    
+    return metrics
+
+def calculate_class_loss(pos_dist, neg_dist, margin, temperature, device):
+    """클래스별 loss 계산을 위한 헬퍼 함수"""
+    # InfoNCE loss
+    logits_pos = -pos_dist / temperature
+    logits_neg = -neg_dist / temperature
+    labels_contrastive = torch.zeros(pos_dist.size(0), device=device)
+    contrastive_loss = nn.CrossEntropyLoss()(
+        torch.cat([logits_pos.unsqueeze(1), logits_neg.expand(pos_dist.size(0), -1)], dim=1),
+        labels_contrastive.long()
+    )
+    
+    # Triplet loss
+    triplet_loss = torch.clamp(
+        pos_dist.unsqueeze(1) - neg_dist.unsqueeze(0) + margin,
+        min=0
+    ).mean()
+    
+    return triplet_loss + 0.5 * contrastive_loss
 
 @torch.no_grad()
 def evaluate_with_prototypes(model, train_loader, val_loader, device, margin=0.3):
     model.eval()
     
-    # 1. 학습 데이터로부터 각 클래스의 prototype 계산
-    n_classes = None
-    all_embeddings = None
+    # 프로토타입 계산을 배치 단위로 처리
+    prototypes = calculate_prototypes(model, train_loader, device)
     
-    # 첫 배치로 n_classes와 embedding 차원 확인
-    for images, labels in train_loader:
-        images, labels = images.to(device), labels.to(device)
+    # 평가 로직
+    metrics = evaluate_with_precomputed_prototypes(
+        model, val_loader, prototypes, device, margin)
+    
+    return metrics
+
+def calculate_prototypes(model, loader, device):
+    """프로토타입 계산을 위한 헬퍼 함수"""
+    class_embeddings = defaultdict(list)
+    
+    for images, labels in tqdm(loader, desc="Computing prototypes"):
+        images = images.to(device)
         embeddings = model(images)
-        n_classes = labels.shape[1]
-        all_embeddings = [[] for _ in range(n_classes)]
-        break
-    
-    # prototype 계산을 위한 embedding 수집
-    print("Computing prototypes...")
-    for images, labels in tqdm(train_loader):
-        images, labels = images.to(device), labels.to(device)
-        embeddings = model(images)  # [batch, n_class, embedding_dim]
+        embeddings = F.normalize(embeddings, p=2, dim=2)
         
-        for class_idx in range(n_classes):
+        for class_idx in range(labels.shape[1]):
             class_mask = labels[:, class_idx] == 1
             if class_mask.sum() > 0:
                 class_emb = embeddings[class_mask, class_idx, :]
-                all_embeddings[class_idx].append(class_emb)
+                class_embeddings[class_idx].append(class_emb)
     
-    # 각 클래스의 prototype 계산
-    prototypes = []
-    for class_idx in range(n_classes):
-        if all_embeddings[class_idx]:
-            class_embeddings = torch.cat(all_embeddings[class_idx], dim=0)
-            class_embeddings = F.normalize(class_embeddings, p=2, dim=1)
-            prototype = class_embeddings.mean(0)
-            prototype = F.normalize(prototype, p=2, dim=0)
-            prototypes.append(prototype)
-        else:
-            # embedding_dim 찾기
-            for emb_list in all_embeddings:
-                if emb_list:
-                    embedding_dim = emb_list[0].shape[-1]
-                    break
-            prototypes.append(torch.zeros(embedding_dim, device=device))
-    
-    prototypes = torch.stack(prototypes)  # [n_class, embedding_dim]
-    
-    # 2. 검증 데이터 평가
-    predictions_list = []
-    labels_list = []
-    
-    print("Evaluating...")
-    distances_per_class = [[] for _ in range(n_classes)]  # 각 클래스별 거리 저장
-    for images, labels in tqdm(val_loader):
-        images, labels = images.to(device), labels.to(device)
-        embeddings = model(images)  # [batch, n_class, embedding_dim]
-        
-        batch_predictions = []
-        batch_distances = []  # 배치의 거리값 저장
-        for class_idx in range(n_classes):
-            class_emb = embeddings[:, class_idx, :]  # [batch, embedding_dim]
-            class_emb = F.normalize(class_emb, dim=1)
-            
-            # prototype과의 거리 계산
-            distances = torch.sum((class_emb - prototypes[class_idx]) ** 2, dim=1)
-            distances_per_class[class_idx].extend(distances.cpu().numpy())
-            batch_distances.append(distances)
-            # 거리가 임계값보다 작으면 해당 클래스로 분류
-            pred = (distances < margin).float()
-            batch_predictions.append(pred)
-        
-        batch_distances = torch.stack(batch_distances, dim=1)  # [batch, n_class]
-        batch_predictions = torch.stack(batch_predictions, dim=1)  # [batch, n_class]
-        
-        # 배치별 결과 출력
-        # print("\nBatch Results:")
-        # print(f"Margin: {margin:.4f}")
-        # for i in range(len(images)):
-        #     print(f"\nSample {i}:")
-        #     for class_idx in range(n_classes):
-        #         print(f"Class {class_idx}:")
-        #         print(f"  Distance: {batch_distances[i, class_idx]:.4f}")
-        #         print(f"  Prediction: {batch_predictions[i, class_idx].item()}")
-        #         print(f"  True Label: {labels[i, class_idx].item()}")
-        
-        predictions_list.append(batch_predictions.cpu())
-        labels_list.append(labels.cpu())
-    
-    # 분석 결과 저장
-    all_labels = torch.cat(labels_list)
-    save_distance_analysis(
-    distances_per_class=distances_per_class,
-    labels=all_labels,
-    margin=margin,
-    n_classes=n_classes,
-    output_dir='output'
-    )
-
-    
-    # 결과 평가
-    all_predictions = torch.cat(predictions_list, dim=0)
-    all_labels = torch.cat(labels_list, dim=0)
-    
-    metrics = {
-        'accuracy': accuracy_score(all_labels.numpy(), all_predictions.numpy()),
-        'precision': precision_score(all_labels.numpy(), all_predictions.numpy(), average='macro'),
-        'recall': recall_score(all_labels.numpy(), all_predictions.numpy(), average='macro'),
-        'f1': f1_score(all_labels.numpy(), all_predictions.numpy(), average='macro')
-    }
-    
-    # 클래스별 메트릭
-    class_metrics = {}
-    for class_idx in range(n_classes):
-        class_pred = all_predictions[:, class_idx]
-        class_label = all_labels[:, class_idx]
-        
-        class_metrics[f'class_{class_idx}'] = {
-            'f1': f1_score(class_label.numpy(), class_pred.numpy()),
-            'precision': precision_score(class_label.numpy(), class_pred.numpy()),
-            'recall': recall_score(class_label.numpy(), class_pred.numpy()),
-            'support': class_label.sum().item()
-        }
-        
-        # prototype과의 평균 거리도 추가
-        with torch.no_grad():
-            class_emb = embeddings[:, class_idx, :]
-            class_emb = F.normalize(class_emb, dim=1)
-            distances = torch.sum((class_emb - prototypes[class_idx]) ** 2, dim=1)
-            class_metrics[f'class_{class_idx}']['avg_distance'] = distances.mean().item()
-    
-    return {
-        'overall': metrics,
-        'per_class': class_metrics
-    }
+    return compute_class_prototypes(class_embeddings, device)
 
 def train_and_evaluate(model, train_loader, val_loader, optimizer, scheduler, scaler, device, epochs, temperature=0.07):
     best_f1 = 0.0
     early_stopping = EarlyStopping(patience=10, min_delta=0.001)
     
-    # for epoch in range(epochs):
-    #     print(f"Epoch {epoch+1}/{epochs}")
+    for epoch in range(epochs):
+        print(f"Epoch {epoch+1}/{epochs}")
         
-    #     # criterion 제거 (우리는 custom loss를 사용)
-    #     train_loss = train_epoch(model, train_loader, optimizer, scaler, device, temperature)
+        # criterion 제거 (우리는 custom loss를 사용)
+        train_loss = train_epoch(model, train_loader, optimizer, scaler, device, temperature)
         
-    #     # 새로운 평가 함수 사용
-    #     metrics = evaluate_with_prototypes(model, train_loader, val_loader, device)
-    #     val_f1 = metrics['overall']['f1']
+        # 새로운 평가 함수 사용
+        metrics = evaluate_with_prototypes(model, train_loader, val_loader, device)
+        val_f1 = metrics['overall']['f1']
         
-    #     print(f"Training Loss: {train_loss:.4f}")
-    #     print(f"Validation F1 Score: {val_f1:.4f}")
+        print(f"Training Loss: {train_loss:.4f}")
+        print(f"Validation F1 Score: {val_f1:.4f}")
         
-    #     # 클래스별 성능 출력
-    #     print("\nPer-class Performance:")
-    #     for class_name, class_metric in metrics['per_class'].items():
-    #         print(f"{class_name}:")
-    #         print(f"  F1: {class_metric['f1']:.4f}")
-    #         print(f"  Precision: {class_metric['precision']:.4f}")
-    #         print(f"  Recall: {class_metric['recall']:.4f}")
+        # 클래스별 성능 출력
+        print("\nPer-class Performance:")
+        for class_name, class_metric in metrics['per_class'].items():
+            print(f"{class_name}:")
+            print(f"  F1: {class_metric['f1']:.4f}")
+            print(f"  Precision: {class_metric['precision']:.4f}")
+            print(f"  Recall: {class_metric['recall']:.4f}")
         
-    #     scheduler.step(val_f1)
+        scheduler.step(val_f1)
         
-    #     if val_f1 > best_f1:
-    #         best_f1 = val_f1
-    #         # 모델 저장 시 필요한 정보들도 함께 저장
-    #         save_dict = {
-    #             'epoch': epoch,
-    #             'model_state_dict': model.state_dict(),
-    #             'optimizer_state_dict': optimizer.state_dict(),
-    #             'best_f1': best_f1,
-    #             'temperature': temperature,
-    #             'class_metrics': metrics['per_class']
-    #         }
-    #         torch.save(save_dict, 'output/best_model.pth')
-    #         print("New best model saved!")
+        if val_f1 > best_f1:
+            best_f1 = val_f1
+            # 모델 저장 시 필요한 정보들도 함께 저장
+            save_dict = {
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'best_f1': best_f1,
+                'temperature': temperature,
+                'class_metrics': metrics['per_class']
+            }
+            torch.save(save_dict, 'output/best_model.pth')
+            print("New best model saved!")
         
-    #     early_stopping(val_f1)
-    #     if early_stopping.early_stop:
-    #         print("Early stopping triggered")
-    #         break
+        early_stopping(val_f1)
+        if early_stopping.early_stop:
+            print("Early stopping triggered")
+            break
         
-    #     print()
+        print()
     
     # 최종 결과 출력
     print("\nTraining completed!")
@@ -475,7 +680,13 @@ def main(cfg, gpu, save_dir):
     valset.transform = val_test_transform
     testset.transform = val_test_transform
 
-    trainloader = DataLoader(trainset, batch_size=batch_size, num_workers=num_workers, drop_last=True, pin_memory=True)
+    trainloader = DataLoader(
+        trainset, 
+        batch_sampler=BalancedBatchSampler(trainset, batch_size=batch_size),
+        num_workers=num_workers,
+        pin_memory=True
+    )
+    #trainloader = DataLoader(trainset, batch_size=batch_size, num_workers=num_workers, drop_last=True, pin_memory=True)
     valloader = DataLoader(valset, batch_size=1, num_workers=1, pin_memory=True)
     testloader = DataLoader(testset, batch_size=1, num_workers=1, pin_memory=True)
     
@@ -493,7 +704,7 @@ def main(cfg, gpu, save_dir):
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.1, patience=5, verbose=True)
     scaler = GradScaler(enabled=train_cfg['AMP'])
 
-    epoch = 1000
+    epoch = 100
     print("Start Training ...")
     
     best_f1, final_metrics = train_and_evaluate(
