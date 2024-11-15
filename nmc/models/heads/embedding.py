@@ -1,5 +1,7 @@
 from torch import nn
 import torch
+from torchvision import models 
+
 class MultiHeadEmbedding(nn.Module):
     def __init__(self, num_features, num_classes, embedding_dim):
         super().__init__()
@@ -16,6 +18,39 @@ class MultiHeadEmbedding(nn.Module):
         # 각 헤드별로 임베딩 생성
         embeddings = [head(x) for head in self.heads]
         return torch.stack(embeddings, dim=1)  # (batch_size, num_classes, embedding_dim)
+    
+class MultiHeadEmbeddingWithClassifier(nn.Module):
+    def __init__(self, num_features, num_classes, embedding_dim):
+        super().__init__()
+        # embedding heads
+        self.heads = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(num_features, 512),
+                nn.ReLU(),
+                nn.Linear(512, embedding_dim)
+            ) for _ in range(num_classes)
+        ])
+        
+        # classifier heads
+        self.classifier_heads = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(embedding_dim, 128),
+                nn.ReLU(),
+                nn.Dropout(0.2),
+                nn.Linear(128, 1)
+            ) for _ in range(num_classes)
+        ])
+    
+    def forward(self, x):
+        # embedding 생성 (MultiHeadEmbedding과 동일)
+        embeddings = [head(x) for head in self.heads]
+        embeddings = torch.stack(embeddings, dim=1)
+        
+        # classification
+        logits = [classifier(embeddings[:, i]) for i, classifier in enumerate(self.classifier_heads)]
+        logits = torch.cat(logits, dim=1)
+        
+        return logits
 
 class MultiHeadEmbeddingBCE(nn.Module):
     def __init__(self, num_features, num_classes, embedding_dim):
