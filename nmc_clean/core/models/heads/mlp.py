@@ -1,0 +1,90 @@
+import torch
+from torch import nn, Tensor
+from timm.layers import SelectAdaptivePool2d, LayerNorm2d
+
+class MLPHead(nn.Module):
+    def __init__(self, num_features, num_classes, pool_type='avg', drop_rate=0.0):
+        super().__init__()
+        self.global_pool = SelectAdaptivePool2d(pool_type=pool_type, flatten=False)
+        self.norm = LayerNorm2d(num_features, eps=1e-5)
+        self.flatten = nn.Flatten(start_dim=1, end_dim=-1)
+        self.pre_logits = nn.Sequential(
+            nn.Linear(num_features, num_features),
+            nn.Tanh()
+        )
+        self.drop = nn.Dropout(p=drop_rate)
+        self.fc = nn.Linear(num_features, num_classes)
+
+    def forward(self, x):
+        x = self.global_pool(x)
+        x = self.norm(x)
+        x = self.flatten(x)
+        x = self.pre_logits(x)
+        x = self.drop(x)
+        logits = self.fc(x)
+        return logits 
+
+class MLPMultiHead(nn.Module):
+    def __init__(self, num_features, num_embedding=768, pool_type='avg', drop_rate=0.1):
+        super().__init__()
+        self.global_pool = SelectAdaptivePool2d(pool_type=pool_type, flatten=True)
+        self.norm = LayerNorm2d(num_features, eps=1e-5)
+        
+        self.head = nn.Sequential(
+            nn.Linear(num_features, num_features),
+            nn.ReLU(),
+            nn.Linear(num_features, num_embedding)
+        )
+        
+        self.classifier = nn.Sequential(
+            # nn.Linear(num_embedding, 64),
+            # nn.ReLU(),
+            nn.Dropout(drop_rate),
+            nn.Linear(num_embedding, 1)
+        )
+
+    def forward(self, x: torch.Tensor, head = False) -> torch.Tensor:
+        x = self.norm(x)
+        x = self.global_pool(x)
+        
+        x = self.head(x)
+        
+        if head==True:
+            x = self.classifier(x)
+        
+        return x
+    
+class Head(nn.Module):
+    def __init__(self, in_features: int = 2048, num_classes: int = 11):
+        super(Head, self).__init__()
+        self.global_avg_pool = nn.AdaptiveAvgPool2d(1)  # Output: [batch_size, in_features, 1, 1]
+        self.fc = nn.Linear(in_features, num_classes)
+
+    def forward(self, x: Tensor) -> Tensor:
+        x = self.global_avg_pool(x)
+        x = torch.flatten(x, 1)
+        x = self.fc(x)
+        return x
+    
+class EfficientNetV2Head(nn.Module):
+    def __init__(self, in_features: int = 1280, num_classes: int = 11):
+        super(EfficientNetV2Head, self).__init__()
+        self.fc = nn.Linear(in_features, num_classes)
+
+    def forward(self, x: Tensor) -> Tensor:
+        # Directly pass the feature vector through the fully connected layer
+        x = self.fc(x)
+        return x
+    
+if __name__ == '__main__':
+    import torch
+    head = MLPHead(num_features=768, num_classes=1000)
+    features = torch.zeros(1, 768, 16, 16)
+    outs = head(features)
+    print(outs.shape)
+    head = MLPMultiHead(num_features=768)
+    features = torch.zeros(1, 768, 16, 16)
+    embeddings = head(features)
+    for i in range(len(embeddings)):
+        print(embeddings.shape)
+    
