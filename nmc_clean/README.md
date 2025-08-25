@@ -1,5 +1,3 @@
-# NMC (Neural Multi-Class) Refactored Code
-
 ## Overview
 
 이 저장소는 NMC (Neural Multi-Class) 시스템의 정리된 코드를 포함합니다. 기존 코드에서 불필요한 출력과 중복 코드를 제거하고, 핵심 기능만을 포함하여 깔끔하게 정리했습니다.
@@ -71,7 +69,6 @@ nmc_clean/
 ## 🛠️ Tools
 
 - **val.py**: 모델 평가 도구
-- **episodic_utils.py**: 에피소딕 학습 유틸리티
 
 ## 📜 Scripts
 
@@ -92,8 +89,7 @@ nmc_clean/
 
 ## ⚠️ Important Notes
 
-- 이 코드는 **정리된 버전**으로, 원본 코드의 출력과 불필요한 부분을 제거했습니다
-- **원본 코드는 변경되지 않았습니다**
+- 이 코드는 **정리된 버전**으로, 원본 코드의 출력과 불필요한 부분을 제거했습니다줘
 - 실행 전 설정 파일의 경로를 올바르게 설정해야 합니다
 - GPU 환경이 필요합니다 (CUDA 지원)
 
