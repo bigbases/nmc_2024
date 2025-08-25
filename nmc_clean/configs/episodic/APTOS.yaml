@@ -1,0 +1,39 @@
+DEVICE: cuda
+SAVE_DIR: 'output'
+MODEL:
+  NAME: FGMaxxVit
+  BACKBONE: FGMaxxVit
+  PRETRAINED: 'checkpoints/pretrained/maxvit_base_tf_512.in1k_pretrained_weights.pth'
+  UNFREEZE      : 'encoder.stages.3'                         # Freeze all layers without UNFREEZE ['encoder.stages.0', 'encoder.stages.1', 'encoder.stages.2', 'encoder.stages.3', None]
+DATASET:
+  NAME: EpisodicAPTOSDataset
+  ROOT: '/data/public_data/cropped_image'
+  N_WAY: 1
+  K_SHOT: 1
+  Q_QUERY: 1
+TRAIN:
+  IMAGE_SIZE: [1024, 1024]
+  NUM_EPISODES: 500  # Total number of episodes
+  EVAL_INTERVAL: 10  # Evaluate after every 100 episodes
+  AMP: false
+  DDP: false
+LOSS:
+  NAME: CrossEntropy
+  CLS_WEIGHTS: false
+OPTIMIZER:
+  NAME: adamw
+  LR: 0.001
+  WEIGHT_DECAY: 0.01
+SCHEDULER:
+  NAME: warmuppolylr
+  POWER: 0.9
+  WARMUP: 10
+  WARMUP_RATIO: 0.1
+EVAL:
+  MODEL_PATH: 'checkpoints/pretrained/FGMaxxVit/FGMaxxVit.FGMaxxVit.APTOS.pth'
+  IMAGE_SIZE: [1024, 1024]
+TEST:
+  MODEL_PATH: 'checkpoints/pretrained/FGMaxxVit/FGMaxxVit.FGMaxxVit.APTOS.pth'
+  FILE: 'assets/ade'
+  IMAGE_SIZE: [1024, 1024]
+  OVERLAY: true
