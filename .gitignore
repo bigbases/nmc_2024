@@ -1,7 +1,0 @@
-# GitHub Python GitIgnore ----------------------------------------------------------------------------------------------
-# Byte-compiled / optimized / DLL files
-__pycache__/
-nmc.egg-info/
-output/
-checkpoints/
-NMCS/
