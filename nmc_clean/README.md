@@ -1,97 +1,117 @@
+# NMC Refactored Code
+
+## 📚 **Related Paper**
+
+This code is an implementation for the following paper:
+
+**A Comparative Study of Lesion-Centered and Severity-Based Approaches to Diabetic Retinopathy Classification: Improving Interpretability and Performance**
+
+- **Journal**: Biomedicines (MDPI)
+- **DOI**: [https://doi.org/10.3390/biomedicines13061446](https://doi.org/10.3390/biomedicines13061446)
+- **Full Paper**: [https://www.mdpi.com/2227-9059/13/6/1446](https://www.mdpi.com/2227-9059/13/6/1446)
+
+---
+
 ## Overview
 
-이 저장소는 NMC (Neural Multi-Class) 시스템의 정리된 코드를 포함합니다. 기존 코드에서 불필요한 출력과 중복 코드를 제거하고, 핵심 기능만을 포함하여 깔끔하게 정리했습니다.
+This repository contains the refactored code for the NMC system. The code has been cleaned by removing unnecessary outputs and duplicate code, keeping only the core functionality.
 
 ## 📁 Directory Structure
 
 ```
 nmc_clean/
-├── core/           # 핵심 NMC 모듈
-├── configs/        # 설정 파일들
-├── notebooks/      # 정리된 Jupyter 노트북들
-├── tools/          # 평가 및 유틸리티 도구
-├── scripts/        # 실행 스크립트
-└── README.md       # 이 파일
+├── core/           # Core NMC modules
+├── configs/        # Configuration files
+├── notebooks/      # Refactored Jupyter notebooks
+├── tools/          # Evaluation tools used in NMCS
+└── README.md       # This file
 ```
 
 ## 🔧 Core Modules
 
 ### Models
-- **EfficientNetV2**: EfficientNetV2 기반 모델들
-  - `EfficientNetV2MModel`: 단일 라벨 분류용
-  - `EfficientNetV2MModelMulti`: 다중 라벨 분류용
-- **ResNet**: ResNet 기반 모델들
-  - `ResNet50Model`: 단일 라벨 분류용
-  - `ResNet50MultiHeadModel`: 다중 라벨 분류용
-- **FGMaxxVit**: FGMaxxVit 기반 모델들
-  - `FGMaxxVit`: 단일 라벨 분류용
-  - `FGMaxxVit_Multi`: 다중 라벨 분류용
-- **TestCNN**: 테스트용 간단한 CNN 모델
+- **EfficientNetV2**: EfficientNetV2-based models
+  - `EfficientNetV2MModel`: Single-label classification
+  - `EfficientNetV2MModelMulti`: Multi-label classification
+- **ResNet**: ResNet-based models
+  - `ResNet50Model`: Single-label classification
+  - `ResNet50MultiHeadModel`: Multi-label classification
+- **FGMaxxVit**: FGMaxxVit-based models
+  - `FGMaxxVit`: Single-label classification
+  - `FGMaxxVit_Multi`: Multi-label classification
+- **TestCNN**: Simple CNN model for testing
 
 ### Utils
-- **augmentations.py**: 데이터 증강 함수들
-- **losses.py**: 손실 함수들
-- **metrics.py**: 평가 메트릭들
-- **optimizers.py**: 최적화 알고리즘들
-- **schedulers.py**: 학습률 스케줄러들
-- **utils/**: 기타 유틸리티 함수들
+- **augmentations.py**: Data augmentation functions
+- **losses.py**: Loss functions
+- **metrics.py**: Evaluation metrics
+- **optimizers.py**: Optimization algorithms
+- **schedulers.py**: Learning rate schedulers
+- **utils/**: Other utility functions
 
 ## 📊 Configuration Files
 
-- **NMC.yaml**: NMC 데이터셋 학습 설정
-- **APTOS.yaml**: APTOS 데이터셋 학습 설정
-- **ODIR.yaml**: ODIR 데이터셋 학습 설정
-- **Multi_Task.yaml**: 다중 작업 학습 설정
+- **NMC.yaml**: NMC dataset training configuration
+- **APTOS.yaml**: APTOS dataset training configuration
+- **ODIR.yaml**: ODIR dataset training configuration
+- **Multi_Task.yaml**: Multi-task learning configuration
 
-## 📓 Jupyter Notebooks
+## 📓 Jupyter Notebooks (Core NMCS Files)
 
-### NMC 관련
-- **NMC.ipynb**: 기본 NMC 모델 학습 및 평가
-- **NMC_singlelabel.ipynb**: 단일 라벨 NMC 학습
-- **NMC_labelchain.ipynb**: 라벨 체인 기반 NMC 학습
-- **NMC_confusion.ipynb**: 혼동 행렬 분석
+### NMC Related
+- **NMC.ipynb**: Basic NMC model training and evaluation
+- **NMC_singlelabel.ipynb**: Single-label NMC training
+- **NMC_labelchain.ipynb**: Label chain-based NMC training
+- **NMC_confusion.ipynb**: Confusion matrix analysis
 
-### APTOS 관련
-- **APTOS.ipynb**: 기본 APTOS 모델 학습
-- **APTOS_singlelabel.ipynb**: 단일 라벨 APTOS 학습
-- **APTOS_NMC_finetuning.ipynb**: NMC로 APTOS 파인튜닝
-- **NMC_APTOS_finetuning.ipynb**: APTOS로 NMC 파인튜닝
+### APTOS Related
+- **APTOS.ipynb**: Basic APTOS model training
+- **APTOS_singlelabel.ipynb**: Single-label APTOS training
+- **APTOS_NMC_finetuning.ipynb**: APTOS fine-tuning with NMC
+- **NMC_APTOS_finetuning.ipynb**: NMC fine-tuning with APTOS
 
-### 시각화 및 분석
-- **NMC_APTOS_visualization.ipynb**: 시각화 도구
-- **NMC_APTOS_gradcam.ipynb**: Grad-CAM 분석
-- **NMC_APTOS_OSM.ipynb**: OSM (Object Saliency Map) 분석
+### Visualization and Analysis
+- **NMC_APTOS_visualization.ipynb**: Visualization tools
+- **NMC_APTOS_gradcam.ipynb**: Grad-CAM analysis
+- **NMC_APTOS_OSM.ipynb**: OSM (Object Saliency Map) analysis
 
-### 특수 모델
-- **NMC_APTOS_BIFPN.ipynb**: BIFPN (Bidirectional Feature Pyramid Network) 모델
-- **NMC_APTOS_FPN.ipynb**: FPN (Feature Pyramid Network) 모델
+### Special Models
+- **NMC_APTOS_BIFPN.ipynb**: BIFPN (Bidirectional Feature Pyramid Network) model
+- **NMC_APTOS_FPN.ipynb**: FPN (Feature Pyramid Network) model
 
-## 🛠️ Tools
+## 🛠️ Tools (Actually Used in NMCS)
 
-- **val.py**: 모델 평가 도구
-
-## 📜 Scripts
-
-실행 가능한 스크립트들 (구체적인 내용은 각 파일 참조)
+- **val.py**: Model evaluation tool (includes `evaluate_epi` function)
+- **episodic_utils.py**: Episodic learning utilities
 
 ## 🚀 Quick Start
 
-1. **환경 설정**
+1. **Environment Setup**
    ```bash
    pip install -r requirements.txt
    ```
+   
+   Or install individually:
+   ```bash
+   pip install torch torchvision torchaudio
+   pip install numpy pandas scipy scikit-learn
+   pip install opencv-python Pillow matplotlib seaborn
+   pip install tqdm PyYAML tabulate jupyter
+   ```
 
-2. **설정 파일 확인**
-   - `configs/NMC.yaml`에서 데이터 경로 및 모델 설정 확인
+2. **Configuration Check**
+   - Check data paths and model settings in `configs/NMC.yaml`
 
-3. **노트북 실행**
-   - `notebooks/` 폴더의 원하는 노트북 실행
+3. **Run Notebooks**
+   - Execute desired notebooks from the `notebooks/` folder
 
 ## ⚠️ Important Notes
 
-- 이 코드는 **정리된 버전**으로, 원본 코드의 출력과 불필요한 부분을 제거했습니다줘
-- 실행 전 설정 파일의 경로를 올바르게 설정해야 합니다
-- GPU 환경이 필요합니다 (CUDA 지원)
+- This code is a **refactored version** that includes only the core functionality actually used in NMCS
+- **Original code remains unchanged**
+- **Unnecessary files have been removed** (contrastive_proto, multi_task, etc.)
+- Set correct paths in configuration files before execution
+- GPU environment is required (CUDA support)
 
 ## 🔗 Dependencies
 
@@ -110,8 +130,8 @@ nmc_clean/
 
 ## 📝 License
 
-원본 프로젝트의 라이선스를 따릅니다.
+Follows the license of the original project.
 
 ---
 
-**이 코드는 NMC 시스템의 핵심 기능만을 포함한 정리된 버전입니다.**
+**This code is a refactored version containing only the core functionality of the NMC system.**
