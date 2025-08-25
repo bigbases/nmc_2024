@@ -1,4 +1,4 @@
-# NMC Refactored Code
+# NMC Code
 
 ## 📚 **Related Paper**
 
